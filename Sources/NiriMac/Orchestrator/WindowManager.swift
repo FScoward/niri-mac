@@ -759,7 +759,7 @@ final class WindowManager {
         // 修飾キーなし → 水平ビュースクロール
         guard abs(deltaX) > 0.5 else { return }
         let sensitivity = isContinuous ? config.scrollSensitivity : config.mouseWheelScrollSensitivity
-        let delta = -deltaX * sensitivity
+        let delta = deltaX * sensitivity
 
         var ws = screens[screenIdx].activeWorkspace
         let current = ws.viewOffset.current
