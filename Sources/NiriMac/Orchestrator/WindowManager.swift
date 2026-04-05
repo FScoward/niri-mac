@@ -65,6 +65,9 @@ final class WindowManager {
     /// ドラッグ判定の移動距離閾値（px）
     private let dragThreshold: CGFloat = 20
 
+    /// スワップ直後のクールダウン終了時刻（applyLayout 由来の windowMoved 誤検知を防ぐ）
+    private var swapCooldownEnd: Date = .distantPast
+
     init(config: LayoutConfig = LayoutConfig()) {
         self.axBridge = AccessibilityBridge()
         self.observer = AXObserverBridge()
@@ -192,6 +195,8 @@ final class WindowManager {
         }
         observer.onWindowMoved = { [weak self] windowID, newFrame in
             guard let self else { return }
+            // スワップ直後のクールダウン中は無視（applyLayout 由来の移動通知を防ぐ）
+            guard Date() > self.swapCooldownEnd else { return }
             // マウスボタンが押されていない場合は無視（setWindowFrame 由来など）
             guard self.isMouseDown else { return }
             // 押下時と同じウィンドウのみ対象
@@ -628,6 +633,8 @@ final class WindowManager {
                 }
             }
         }
+        // applyLayout によるウィンドウ移動通知が次の操作と混同されないようクールダウン
+        swapCooldownEnd = Date().addingTimeInterval(0.5)
         needsLayout = true
     }
 
