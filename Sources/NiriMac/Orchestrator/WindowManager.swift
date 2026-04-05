@@ -768,13 +768,10 @@ final class WindowManager {
         let minOffset = min(0, ws.workingArea.width - config.gapWidth - lastX)
         let newOffset = max(minOffset, min(0, current + delta))
 
-        if isContinuous {
-            // トラックパッド: 連続イベントのためアニメーション不要（即時反映で滑らか）
-            ws.viewOffset = .static(offset: newOffset)
-        } else {
-            // マウスホイール: 離散イベントのためアニメーションで補間
-            ws.viewOffset.animateTo(newOffset)
-        }
+        // スクロール入力は常に即時反映（animateTo は毎イベント上書きでカクつくため不使用）
+        // アニメーションはキーボード操作（focusLeft/Right）専用
+        _ = isContinuous
+        ws.viewOffset = .static(offset: newOffset)
         screens[screenIdx].activeWorkspace = ws
         needsLayout = true
     }
