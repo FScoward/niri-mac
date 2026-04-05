@@ -14,6 +14,11 @@ final class AXObserverBridge {
     private var notificationCenter = NotificationCenter.default
     private var workspaceObservers: [Any] = []
 
+    /// AXUIElement のハッシュ値 → WindowID マッピング
+    /// kAXUIElementDestroyedNotification 発火時は要素が破棄済みのため
+    /// _AXUIElementGetWindow が失敗する。登録時に事前保存して対応する。
+    private var elementWindowMap: [CFHashCode: WindowID] = [:]
+
     func startObserving() {
         // 既存アプリを登録
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
@@ -51,6 +56,7 @@ final class AXObserverBridge {
         }
         workspaceObservers.removeAll()
         observers.removeAll()
+        elementWindowMap.removeAll()
     }
 
     private func registerObserver(for pid: pid_t) {
@@ -63,19 +69,46 @@ final class AXObserverBridge {
         let appElement = AXUIElementCreateApplication(pid)
         let selfPtr = Unmanaged.passRetained(self).toOpaque()
 
-        let notifications: [String] = [
+        // アプリ要素レベルで登録する通知（kAXUIElementDestroyedNotification も含む）
+        let appNotifications: [String] = [
             kAXWindowCreatedNotification as String,
             kAXUIElementDestroyedNotification as String,
             kAXWindowMovedNotification as String,
             kAXWindowResizedNotification as String,
         ]
-
-        for notification in notifications {
+        for notification in appNotifications {
             AXObserverAddNotification(obs, appElement, notification as CFString, selfPtr)
+        }
+
+        // 既存ウィンドウにも個別登録（windowID の事前マッピングを兼ねる）
+        var windowList: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowList) == .success,
+           let windows = windowList as? [AXUIElement] {
+            for windowElement in windows {
+                addDestroyedNotification(obs: obs, windowElement: windowElement, selfPtr: selfPtr)
+            }
         }
 
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
         observers[pid] = obs
+    }
+
+    /// 新規ウィンドウの破棄通知をウィンドウ要素に登録する（handleWindowCreated から呼ぶ）
+    func registerWindowDestroyedNotification(for windowElement: AXUIElement, pid: pid_t) {
+        guard let obs = observers[pid] else { return }
+        let selfPtr = Unmanaged.passRetained(self).toOpaque()
+        addDestroyedNotification(obs: obs, windowElement: windowElement, selfPtr: selfPtr)
+    }
+
+    /// 破棄通知の登録と elementWindowMap への事前保存を行う
+    private func addDestroyedNotification(obs: AXObserver, windowElement: AXUIElement, selfPtr: UnsafeMutableRawPointer) {
+        // 事前にwindowIDを取得してマッピングに保存（可能な場合）
+        var windowID: CGWindowID = 0
+        if _AXUIElementGetWindow(windowElement, &windowID) == .success {
+            elementWindowMap[CFHash(windowElement)] = windowID
+        }
+        // windowID取得の成否に関わらず通知を登録する
+        AXObserverAddNotification(obs, windowElement, kAXUIElementDestroyedNotification as CFString, selfPtr)
     }
 
     private func removeObserver(for pid: pid_t) {
@@ -100,10 +133,20 @@ final class AXObserverBridge {
             }
 
         case elementDestroyed:
-            var windowID: CGWindowID = 0
-            if _AXUIElementGetWindow(element, &windowID) == .success {
+            let hash = CFHash(element)
+            if let windowID = elementWindowMap[hash] {
+                // 事前保存したマッピングから取得（確実）
+                elementWindowMap.removeValue(forKey: hash)
                 DispatchQueue.main.async { [weak self] in
                     self?.onWindowDestroyed?(windowID)
+                }
+            } else {
+                // フォールバック: 要素から直接取得を試みる
+                var windowID: CGWindowID = 0
+                if _AXUIElementGetWindow(element, &windowID) == .success {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onWindowDestroyed?(windowID)
+                    }
                 }
             }
 

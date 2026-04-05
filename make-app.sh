@@ -4,10 +4,16 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "[niri-mac] Building..."
-swift build 2>&1
+CONFIG="${1:-release}"
+if [[ "$CONFIG" != "debug" && "$CONFIG" != "release" ]]; then
+    echo "Usage: $0 [debug|release]"
+    exit 1
+fi
 
-BINARY=".build/debug/NiriMac"
+echo "[niri-mac] Building ($CONFIG)..."
+swift build -c "$CONFIG" 2>&1
+
+BINARY=".build/$CONFIG/NiriMac"
 APP="NiriMac.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
@@ -18,7 +24,9 @@ mkdir -p "$MACOS"
 
 cp "$BINARY" "$MACOS/NiriMac"
 
-cat > "$CONTENTS/Info.plist" << 'EOF'
+BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S')
+
+cat > "$CONTENTS/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -37,6 +45,8 @@ cat > "$CONTENTS/Info.plist" << 'EOF'
     <string>APPL</string>
     <key>LSUIElement</key>
     <true/>
+    <key>BuildDate</key>
+    <string>${BUILD_DATE} (${CONFIG})</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>NiriMac needs Accessibility access to manage window positions.</string>
     <key>NSInputMonitoringUsageDescription</key>
