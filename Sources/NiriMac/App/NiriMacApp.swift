@@ -5,6 +5,8 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var windowManager: WindowManager?
     private var statusItem: NSStatusItem?
     private var pinMenuItem: NSMenuItem?
+    /// menuWillOpen 時点のカラムインデックスを保持（クリック後のフォーカス変化対策）
+    private var pinnedTargetColumnIndex: Int?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         printDiagnostics()
@@ -63,14 +65,16 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem?.menu = menu
     }
 
-    /// メニューが開く直前にアクティブカラムの pin 状態を反映してタイトルを更新する
+    /// メニューが開く直前にアクティブカラムの pin 状態を記録してタイトルを更新する
     func menuWillOpen(_ menu: NSMenu) {
+        // この時点のインデックスを保持（選択実行時にフォーカスが変わっても正しいカラムをpinできる）
+        pinnedTargetColumnIndex = windowManager?.activeColumnIndex
         let isPinned = windowManager?.activeColumnIsPinned ?? false
         pinMenuItem?.title = isPinned ? "Unpin Column" : "Pin Column"
     }
 
     @objc private func togglePin() {
-        windowManager?.handleAction(.togglePin)
+        windowManager?.handleAction(.togglePin, forColumnIndex: pinnedTargetColumnIndex)
     }
 
     @objc private func quit() {

@@ -397,6 +397,15 @@ final class WindowManager {
         }
     }
 
+    /// メニューバー用: アクティブカラムのインデックスを返す
+    var activeColumnIndex: Int? {
+        let idx = activeScreenIndex()
+        guard idx < screens.count else { return nil }
+        let ws = screens[idx].activeWorkspace
+        guard !ws.columns.isEmpty else { return nil }
+        return ws.activeColumnIndex
+    }
+
     /// メニューバー用: アクティブカラムが現在 pin されているかを返す
     var activeColumnIsPinned: Bool {
         let idx = activeScreenIndex()
@@ -404,6 +413,21 @@ final class WindowManager {
         let ws = screens[idx].activeWorkspace
         guard !ws.columns.isEmpty, ws.activeColumnIndex < ws.columns.count else { return false }
         return ws.columns[ws.activeColumnIndex].isPinned
+    }
+
+    /// メニューバー用: カラムインデックスを指定して handleAction を呼ぶ（togglePin 専用）
+    func handleAction(_ action: KeyboardShortcutManager.Action, forColumnIndex columnIndex: Int?) {
+        guard action == .togglePin, let colIdx = columnIndex else {
+            handleAction(action)
+            return
+        }
+        let screenIdx = activeScreenIndex()
+        guard screenIdx < screens.count,
+              colIdx < screens[screenIdx].activeWorkspace.columns.count else { return }
+        let current = screens[screenIdx].activeWorkspace.columns[colIdx].isPinned
+        screens[screenIdx].activeWorkspace.columns[colIdx].isPinned = !current
+        niriLog("[action] togglePin(menu) col=\(colIdx) pinned=\(!current)")
+        needsLayout = true
     }
 
     func handleAction(_ action: KeyboardShortcutManager.Action) {
