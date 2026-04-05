@@ -193,6 +193,25 @@ final class WindowManager {
         observer.onApplicationTerminated = { [weak self] pid in
             self?.handleApplicationTerminated(pid: pid)
         }
+        observer.onWindowResized = { [weak self] windowID, newFrame in
+            guard let self else { return }
+            // applyLayout の setWindowFrame が誤発火させる通知を防ぐ
+            // ユーザーがマウスでドラッグ中のみ受け付ける
+            guard self.isMouseDown else { return }
+            for screenIdx in screens.indices {
+                for wsIdx in screens[screenIdx].workspaces.indices {
+                    for colIdx in screens[screenIdx].workspaces[wsIdx].columns.indices {
+                        if screens[screenIdx].workspaces[wsIdx].columns[colIdx].windows.contains(windowID) {
+                            let newWidth = newFrame.width
+                            niriLog("[window] resized: win=\(windowID) newWidth=\(Int(newWidth))px")
+                            screens[screenIdx].workspaces[wsIdx].columns[colIdx].width = newWidth
+                            // needsLayout は mouseUp 時にまとめて立てる（ドラッグ中は applyLayout を走らせない）
+                            return
+                        }
+                    }
+                }
+            }
+        }
         observer.onWindowMoved = { [weak self] windowID, newFrame in
             guard let self else { return }
             // スワップ直後のクールダウン中は無視（applyLayout 由来の移動通知を防ぐ）
@@ -243,6 +262,7 @@ final class WindowManager {
             self.isMouseDown = false
             self.mouseDownWindowID = nil
             self.mouseDownFrame = nil
+            self.needsLayout = true  // リサイズ・スワップ確定時にレイアウトを適用
             self.handleMouseUp(at: point)
         }
         mouse.onAppActivated = { [weak self] in

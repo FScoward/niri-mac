@@ -6,6 +6,7 @@ final class AXObserverBridge {
     var onWindowCreated: ((WindowInfo) -> Void)?
     var onWindowDestroyed: ((WindowID) -> Void)?
     var onWindowMoved: ((WindowID, CGRect) -> Void)?
+    var onWindowResized: ((WindowID, CGRect) -> Void)?
     var onApplicationLaunched: ((pid_t) -> Void)?
     var onApplicationTerminated: ((pid_t) -> Void)?
 
@@ -106,12 +107,21 @@ final class AXObserverBridge {
                 }
             }
 
-        case windowMoved, windowResized:
+        case windowMoved:
             var windowID: CGWindowID = 0
             if _AXUIElementGetWindow(element, &windowID) == .success,
                let frame = WindowInfo.fetchFrame(from: element) {
                 DispatchQueue.main.async { [weak self] in
                     self?.onWindowMoved?(windowID, frame)
+                }
+            }
+
+        case windowResized:
+            var windowID: CGWindowID = 0
+            if _AXUIElementGetWindow(element, &windowID) == .success,
+               let frame = WindowInfo.fetchFrame(from: element) {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onWindowResized?(windowID, frame)
                 }
             }
 
