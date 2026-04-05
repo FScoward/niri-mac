@@ -50,6 +50,7 @@ struct Workspace {
     ///
     /// 既に完全に workingArea 内に収まっている場合は何もしない。
     /// はみ出している場合のみ、最小限のスクロールで画面内に収める。
+    /// isPinned なカラムは常に画面内固定なので、アクティブカラムが pinned の場合は何もしない。
     mutating func recenterViewOffset(gap: CGFloat = 16, animated: Bool = true) {
         guard !columns.isEmpty, activeColumnIndex < columns.count else {
             if animated {
@@ -60,17 +61,53 @@ struct Workspace {
             return
         }
 
-        let xs = columnXPositions(gap: gap)
-        let activeX = xs[activeColumnIndex]
-        let activeWidth = columns[activeColumnIndex].width
-        let effectiveWidth = workingArea.width
+        // pinned カラムがアクティブの場合はスクロール不要
+        if columns[activeColumnIndex].isPinned { return }
+
+        // pinned 領域の幅（非pinnedカラムのスクロール基点オフセット）
+        let pinnedAreaWidth: CGFloat = columns.reduce(0) { acc, col in
+            col.isPinned ? acc + col.width + gap : acc
+        }
+
+        // 非pinnedカラムのみ取り出してXを計算
+        let nonPinnedCols = columns.filter { !$0.isPinned }
+        guard !nonPinnedCols.isEmpty else { return }
+
+        // アクティブカラムが非pinned内で何番目か
+        var nonPinnedActiveIdx = 0
+        var found = false
+        var ni = 0
+        for (i, col) in columns.enumerated() {
+            if !col.isPinned {
+                if i == activeColumnIndex {
+                    nonPinnedActiveIdx = ni
+                    found = true
+                    break
+                }
+                ni += 1
+            }
+        }
+        guard found else { return }
+
+        // 非pinned カラム群の相対X座標
+        var xs: [CGFloat] = []
+        var x: CGFloat = 0
+        for col in nonPinnedCols {
+            xs.append(x)
+            x += col.width + gap
+        }
+
+        let activeX = xs[nonPinnedActiveIdx]
+        let activeWidth = nonPinnedCols[nonPinnedActiveIdx].width
+        // 非pinnedカラムが使える実効幅（pinned 領域と leading gap を除いた残り）
+        let effectiveWidth = workingArea.width - gap - pinnedAreaWidth
         let currentOffset = viewOffset.current
 
-        // 1. アクティブカラムの現在のスクリーン上の位置
+        // 1. アクティブカラムの現在のスクリーン上の位置（非pinned基点からの相対）
         let screenLeft  = activeX + currentOffset
         let screenRight = screenLeft + activeWidth
 
-        // 2. 既に完全に workingArea 内に収まっている → 何もしない
+        // 2. 既に完全に収まっている → 何もしない
         if screenLeft >= 0 && screenRight <= effectiveWidth {
             return
         }
@@ -78,15 +115,13 @@ struct Workspace {
         // 3 & 4. 最小限スクロール
         let newOffset: CGFloat
         if screenLeft < 0 {
-            // 左にはみ出し → 右へスクロール（左端に gap 余白）
             newOffset = -activeX + gap
         } else {
-            // 右にはみ出し → 左へスクロール（右端に gap 余白）
             newOffset = -(activeX + activeWidth - effectiveWidth + gap)
         }
 
         // 5. クランプ
-        let lastX = xs.last! + columns.last!.width
+        let lastX = xs.last! + nonPinnedCols.last!.width
         let minOffset = min(0, effectiveWidth - gap * 2 - lastX)
         let clampedOffset = max(minOffset, min(0, newOffset))
 

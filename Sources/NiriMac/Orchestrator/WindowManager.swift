@@ -506,6 +506,13 @@ final class WindowManager {
             niriLog("[action] cycleColumnWidth col=\(activeIdx) \(Int(currentWidth))→\(Int(screenWidth * nextPreset))px")
             screens[screenIdx].activeWorkspace.columns[activeIdx].width = screenWidth * nextPreset
 
+        case .togglePin:
+            guard !screens[screenIdx].activeWorkspace.columns.isEmpty else { return }
+            let activeIdx = screens[screenIdx].activeWorkspace.activeColumnIndex
+            let current = screens[screenIdx].activeWorkspace.columns[activeIdx].isPinned
+            screens[screenIdx].activeWorkspace.columns[activeIdx].isPinned = !current
+            niriLog("[action] togglePin col=\(activeIdx) pinned=\(!current)")
+
         case .quit:
             stop()
             NSApplication.shared.terminate(nil)

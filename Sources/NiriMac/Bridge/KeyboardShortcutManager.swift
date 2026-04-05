@@ -27,6 +27,7 @@ final class KeyboardShortcutManager {
         case consumeIntoColumnLeft, consumeIntoColumnRight
         case expelFromColumn
         case cycleColumnWidth
+        case togglePin
         case quit
     }
 
@@ -72,6 +73,8 @@ final class KeyboardShortcutManager {
         Binding(modifiers: [.control, .option, .shift], keyCode: 36, action: .expelFromColumn),
         // カラム幅サイクル
         Binding(modifiers: [.control, .option], keyCode: 15, action: .cycleColumnWidth),
+        // カラムpin切り替え (Ctrl+Opt+P)
+        Binding(modifiers: [.control, .option], keyCode: 35, action: .togglePin),
         // 終了
         Binding(modifiers: [.control, .option], keyCode: 12, action: .quit),
     ]

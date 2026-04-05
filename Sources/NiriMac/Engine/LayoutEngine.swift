@@ -45,6 +45,9 @@ enum LayoutEngine {
     /// workingArea は setupScreens() で Cocoa → Quartz 変換済み
     /// distributeColumnHeight の winY は「作業領域上端からの視覚的オフセット（下向き増加）」
     /// → Quartz Y = workingArea.minY + winY  （自然に一致）
+    ///
+    /// isPinned なカラムは viewOffset を無視して画面左端に固定される。
+    /// 非pinnedカラムはpinned領域の右側からスクロール可能に配置される。
     static func computeWindowFrames(
         workspace: Workspace,
         screenFrame: CGRect,
@@ -55,13 +58,29 @@ enum LayoutEngine {
         let columns = workspace.columns
         guard !columns.isEmpty else { return results }
 
-        let xs = columnXPositions(columns: columns, gap: config.gapWidth)
         let scrollOffset = workspace.viewOffset.current
         let workingArea = workspace.workingArea
+        let gap = config.gapWidth
 
-        for (colIdx, column) in columns.enumerated() {
-            let colX = xs[colIdx] + scrollOffset
-            let screenX = workingArea.minX + config.gapWidth + colX
+        // pinned カラムが占める幅（leading gap + 各カラム幅 + gap）
+        let pinnedAreaWidth: CGFloat = columns.reduce(0) { acc, col in
+            col.isPinned ? acc + col.width + gap : acc
+        }
+
+        var pinnedXCursor: CGFloat = gap          // workingArea.minX からの相対位置
+        var nonPinnedXCursor: CGFloat = 0         // pinnedAreaWidth の右側からの相対位置
+
+        for column in columns {
+            let screenX: CGFloat
+            if column.isPinned {
+                // スクロールに関わらず左端固定
+                screenX = workingArea.minX + pinnedXCursor
+                pinnedXCursor += column.width + gap
+            } else {
+                // pinned 領域の右側から scrollOffset を加算
+                screenX = workingArea.minX + gap + pinnedAreaWidth + nonPinnedXCursor + scrollOffset
+                nonPinnedXCursor += column.width + gap
+            }
 
             let heights = distributeColumnHeight(
                 column: column,

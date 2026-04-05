@@ -11,12 +11,15 @@ struct Column {
     var activeWindowIndex: Int
     var width: CGFloat
     var heightDistribution: HeightDistribution
+    /// true の場合、スクロールに関わらず画面左側に固定表示される
+    var isPinned: Bool
 
     init(windows: [WindowID], width: CGFloat) {
         self.windows = windows
         self.activeWindowIndex = 0
         self.width = width
         self.heightDistribution = .equal
+        self.isPinned = false
     }
 
     var activeWindowID: WindowID? {
