@@ -23,6 +23,7 @@ let package = Package(
             name: "NiriMacTests",
             dependencies: [
                 .product(name: "Testing", package: "swift-testing"),
+                .target(name: "NiriMac"),
             ],
             path: "Tests/NiriMacTests"
         ),
