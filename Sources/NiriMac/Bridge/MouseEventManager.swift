@@ -2,6 +2,18 @@ import AppKit
 import CoreGraphics
 import Foundation
 
+private let mouseLogURL = URL(fileURLWithPath: "/tmp/niri-mac.log")
+private func mouseLog(_ message: String) {
+    let line = message + "\n"
+    print(line, terminator: "")
+    if let data = line.data(using: .utf8),
+       let fh = try? FileHandle(forWritingTo: mouseLogURL) {
+        fh.seekToEndOfFile()
+        fh.write(data)
+        try? fh.close()
+    }
+}
+
 /// マウス・トラックパッドイベントの管理。
 /// CGEventTap でクリック・スクロールを捕捉し、コールバックで上位に通知する。
 final class MouseEventManager {
@@ -106,7 +118,7 @@ final class MouseEventManager {
                 deltaX = event.getDoubleValueField(.scrollWheelEventDeltaAxis2)
                 deltaY = event.getDoubleValueField(.scrollWheelEventDeltaAxis1)
             }
-            print("[niri-mac] 🖱️ scroll isContinuous=\(isContinuous) deltaX=\(deltaX) deltaY=\(deltaY)")
+            mouseLog("[scroll] isContinuous=\(isContinuous) deltaX=\(String(format: "%.3f", deltaX)) deltaY=\(String(format: "%.3f", deltaY))")
             guard abs(deltaX) > 0.01 || abs(deltaY) > 0.01 else { return }
 
             // 修飾キーを取得

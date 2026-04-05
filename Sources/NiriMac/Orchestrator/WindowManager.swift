@@ -734,7 +734,11 @@ final class WindowManager {
     }
 
     /// Feature 3: トラックパッド / マウスホイールで水平スクロール
-    /// Ctrl+Opt が押されている場合はカラムフォーカス移動に切り替え
+    ///
+    /// niri 設計方針に準拠:
+    /// - 修飾キーなし → アプリへ透過（WMは無視）
+    /// - Ctrl のみ   → 水平レイアウトスクロール
+    /// - Ctrl+Opt    → カラムフォーカス移動
     private func handleScroll(deltaX: CGFloat, deltaY: CGFloat, isContinuous: Bool, flags: NSEvent.ModifierFlags) {
         let screenIdx = activeScreenIndex()
         guard screenIdx < screens.count else { return }
@@ -756,8 +760,9 @@ final class WindowManager {
             return
         }
 
-        // 修飾キーなし → 水平ビュースクロール
-        guard abs(deltaX) > 0.5 else { return }
+        // Ctrl のみ + 水平スクロール → レイアウトスクロール
+        guard filtered == [.control], abs(deltaX) > 0.5 else { return }
+
         let sensitivity = isContinuous ? config.scrollSensitivity : config.mouseWheelScrollSensitivity
         let delta = deltaX * sensitivity
 
@@ -768,10 +773,13 @@ final class WindowManager {
         let minOffset = min(0, ws.workingArea.width - config.gapWidth - lastX)
         let newOffset = max(minOffset, min(0, current + delta))
 
-        // スクロール入力は常に即時反映（animateTo は毎イベント上書きでカクつくため不使用）
-        // アニメーションはキーボード操作（focusLeft/Right）専用
-        _ = isContinuous
-        ws.viewOffset = .static(offset: newOffset)
+        if isContinuous {
+            // トラックパッド: 連続イベントのためアニメーション不要（即時反映で滑らか）
+            ws.viewOffset = .static(offset: newOffset)
+        } else {
+            // マウスホイール: 離散イベントのためアニメーションで補間
+            ws.viewOffset.animateTo(newOffset)
+        }
         screens[screenIdx].activeWorkspace = ws
         needsLayout = true
     }
