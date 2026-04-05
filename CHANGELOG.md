@@ -4,26 +4,27 @@
 
 ### Features
 
-- **新規ウィンドウ開封時の高さ最大化を改善**: 新しくウィンドウを開いた際の高さ自動展開ロジックを改善
-- **メニューバーに Pin/Unpin Column を追加**: メニューバーからカラムのpin操作が可能に
-- **カラムpin機能を追加**: `Ctrl+Opt+P` でカラムをスクロール固定できるように
-- **AXウィンドウリサイズ検知によるカラム幅変更**: ウィンドウのリサイズ操作でカラム幅が自動変更されるように
-- **ネイティブドラッグによるカラム間ウィンドウスワップ**: ウィンドウをドラッグしてカラム間で移動できるように
+- **Improved height maximization for new windows** / **新規ウィンドウ開封時の高さ最大化を改善**: Improved auto-expand logic when opening new windows
+- **Pin/Unpin Column in menu bar** / **メニューバーに Pin/Unpin Column を追加**: Column pin operations now available from the menu bar
+- **Column pin feature** / **カラムpin機能を追加**: Pin a column to fix its scroll position with `Ctrl+Opt+P`
+- **Column width change via AX window resize detection** / **AXウィンドウリサイズ検知によるカラム幅変更**: Column width automatically adjusts when resizing a window
+- **Inter-column window swap via native drag** / **ネイティブドラッグによるカラム間ウィンドウスワップ**: Drag windows between columns to swap them
 
 ### Bug Fixes
 
-- **ウィンドウ閉じ時の処理を修正**: フォーカス右優先・空白修正・AXObserver改善
-- **スクロール設計を本家niriに準拠した方式に変更**: 本家 niri のスクロール仕様に合わせて再設計
-- **スクロールアニメーションのカクつきを修正**: アニメーションの滑らかさを改善
-- **スクロール方向を修正**: スクロール方向の向きを修正
-- **メニューバーpinのターゲットカラムズレを修正**: pin操作時の対象カラム選択ロジックを修正
-- **スワップ後の逆スワップ誤検知を防ぐクールダウンを追加**: ドラッグスワップ後の誤動作を防止
+- **Fixed window close handling** / **ウィンドウ閉じ時の処理を修正**: Focus priority (prefer right), gap cleanup, AXObserver improvements
+- **Scroll design aligned with upstream niri** / **スクロール設計を本家niriに準拠した方式に変更**: Redesigned scroll behavior to match upstream niri spec
+- **Fixed scroll animation stuttering** / **スクロールアニメーションのカクつきを修正**: Smoother scroll animations
+- **Fixed scroll direction** / **スクロール方向を修正**: Corrected scroll direction
+- **Fixed menu bar pin target column offset** / **メニューバーpinのターゲットカラムズレを修正**: Fixed column selection logic for pin operations
+- **Added cooldown to prevent reverse-swap false detection** / **スワップ後の逆スワップ誤検知を防ぐクールダウンを追加**: Prevents accidental reverse swap after drag
 
 ### Documentation
 
-- README更新: 英語版追加・最新機能を反映
+- Updated README: added English version and reflected latest features / README更新: 英語版追加・最新機能を反映
 
 ---
 
-初回起動時は **アクセシビリティ** と **入力監視** の権限を付与してください。
-詳細は README をご覧ください。
+On first launch, grant **Accessibility** and **Input Monitoring** permissions in System Settings.  
+初回起動時は **アクセシビリティ** と **入力監視** の権限を付与してください。  
+See README for details / 詳細は README をご覧ください。
