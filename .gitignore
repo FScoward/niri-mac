@@ -1,0 +1,6 @@
+.DS_Store
+.build/
+NiriMac.app/
+.claude/
+*.o
+*.d
