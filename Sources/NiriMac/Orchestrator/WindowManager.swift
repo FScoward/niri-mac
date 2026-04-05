@@ -363,12 +363,26 @@ final class WindowManager {
         let screenIdx = screens.firstIndex { $0.frame.contains(center) } ?? 0
         let screenWidth = screens[screenIdx].frame.width
         let colWidth = window.frame.width > 0 ? window.frame.width : config.defaultColumnWidth(for: screenWidth)
+
+        // 開いた瞬間から高さを最大化（アプリのデフォルトサイズが一瞬見えるフラッシュを防ぐ）
+        let wa = screens[screenIdx].workspaces[screens[screenIdx].activeWorkspaceIndex].workingArea
+        let preFrame = CGRect(x: window.frame.origin.x, y: wa.minY, width: colWidth, height: wa.height)
+        try? axBridge.setWindowFrame(window.id, frame: preFrame)
+
         let column = Column(windows: [window.id], width: colWidth)
         screens[screenIdx].workspaces[screens[screenIdx].activeWorkspaceIndex].addColumn(column)
         screens[screenIdx].activeWorkspace.recenterViewOffset(gap: config.gapWidth)
 
-        applyLayout()
+        applyLayout(animated: false)
         try? axBridge.focusWindow(window.id)
+
+        // アプリが非同期で自分のサイズを上書きするレースコンディション対策：
+        // 0.5秒後にもう一度レイアウトを再適用する
+        let winID = window.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.windowRegistry[winID] != nil else { return }
+            self.needsLayout = true
+        }
 
         print("[niri-mac] Window created: \(window.title) (\(window.id))")
     }

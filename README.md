@@ -104,6 +104,7 @@ AccessibilityBridge.setWindowFrame()  ← moves windows via AX API
 - The macOS Accessibility API is best-effort; some windows may refuse to be repositioned
 - Full-screen windows are not managed
 - Some system windows cannot be manipulated when SIP (System Integrity Protection) is enabled
+- **iTerm2 and other character-grid terminal emulators** snap their window height to a multiple of the character cell height. niri-mac will attempt to maximize the height, but the final height will be rounded down to the nearest row boundary by the app itself. To increase the snapped height, raise the default row count in the app's profile settings.
 
 ---
 
@@ -198,3 +199,4 @@ Sources/NiriMac/
 - macOS の Accessibility API はベストエフォートのためウィンドウによっては位置変更を拒否する場合がある
 - フルスクリーンウィンドウは管理対象外
 - SIP (System Integrity Protection) が有効な環境では一部のシステムウィンドウを操作できない
+- **iTerm2 などの文字グリッド型ターミナルエミュレータ**は、ウィンドウ高さを文字セル高の倍数にスナップするため、niri-mac が最大高さを設定しようとしても、アプリ側で最寄りの行数に丸められる。スナップ後の高さを大きくしたい場合は、そのアプリのプロファイル設定でデフォルト行数を増やすこと。
