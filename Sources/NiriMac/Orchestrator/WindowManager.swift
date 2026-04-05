@@ -52,6 +52,19 @@ final class WindowManager {
     private var lastScrollFocusTime: Date = .distantPast
     private let scrollFocusCooldown: TimeInterval = 0.3
 
+    /// マウスボタンが押されているかどうか
+    private var isMouseDown: Bool = false
+
+    /// MouseDown 時にクリックしたウィンドウIDと元フレーム（移動距離判定用）
+    private var mouseDownWindowID: WindowID? = nil
+    private var mouseDownFrame: CGRect? = nil
+
+    /// ドラッグ中のウィンドウID（移動距離 > 閾値 になったら確定）
+    private var draggedWindowID: WindowID? = nil
+
+    /// ドラッグ判定の移動距離閾値（px）
+    private let dragThreshold: CGFloat = 20
+
     init(config: LayoutConfig = LayoutConfig()) {
         self.axBridge = AccessibilityBridge()
         self.observer = AXObserverBridge()
@@ -177,6 +190,23 @@ final class WindowManager {
         observer.onApplicationTerminated = { [weak self] pid in
             self?.handleApplicationTerminated(pid: pid)
         }
+        observer.onWindowMoved = { [weak self] windowID, newFrame in
+            guard let self else { return }
+            // マウスボタンが押されていない場合は無視（setWindowFrame 由来など）
+            guard self.isMouseDown else { return }
+            // 押下時と同じウィンドウのみ対象
+            guard self.mouseDownWindowID == windowID else { return }
+            // 移動距離が閾値を超えた場合のみドラッグと判定
+            guard let downFrame = self.mouseDownFrame else { return }
+            let dx = newFrame.origin.x - downFrame.origin.x
+            let dy = newFrame.origin.y - downFrame.origin.y
+            let distance = sqrt(dx * dx + dy * dy)
+            niriLog("[drag] windowMoved: win=\(windowID) distance=\(Int(distance))px threshold=\(Int(self.dragThreshold))px")
+            if distance > self.dragThreshold {
+                self.draggedWindowID = windowID
+                niriLog("[drag] drag confirmed: win=\(windowID)")
+            }
+        }
         observer.startObserving()
     }
 
@@ -189,10 +219,26 @@ final class WindowManager {
 
     private func setupMouse() {
         mouse.onMouseDown = { [weak self] point in
-            self?.handleMouseFocus(at: point)
+            guard let self else { return }
+            self.isMouseDown = true
+            for (windowID, frame) in self.lastComputedFrames {
+                if frame.contains(point) {
+                    self.mouseDownWindowID = windowID
+                    self.mouseDownFrame = frame
+                    break
+                }
+            }
+            self.handleMouseFocus(at: point)
         }
         mouse.onScroll = { [weak self] deltaX, deltaY, isContinuous, flags in
             self?.handleScroll(deltaX: deltaX, deltaY: deltaY, isContinuous: isContinuous, flags: flags)
+        }
+        mouse.onMouseUp = { [weak self] point in
+            guard let self else { return }
+            self.isMouseDown = false
+            self.mouseDownWindowID = nil
+            self.mouseDownFrame = nil
+            self.handleMouseUp(at: point)
         }
         mouse.onAppActivated = { [weak self] in
             guard let self else { return }
@@ -549,6 +595,41 @@ final class WindowManager {
     }
 
     // MARK: - Mouse Handlers
+
+    /// ドラッグ終了時のスワップ判定
+    private func handleMouseUp(at point: CGPoint) {
+        guard let draggedID = draggedWindowID else { return }
+        draggedWindowID = nil
+
+        // ドロップ位置にあるウィンドウを lastComputedFrames から検索
+        var dropTargetID: WindowID? = nil
+        for (windowID, frame) in lastComputedFrames {
+            guard frame.contains(point), windowID != draggedID else { continue }
+            dropTargetID = windowID
+            break
+        }
+
+        guard let targetID = dropTargetID else {
+            // どのウィンドウにもドロップされなかった → レイアウトを元に戻す
+            niriLog("[drag] mouseUp: no target — restoring layout")
+            needsLayout = true
+            return
+        }
+
+        // 全スクリーン・全ワークスペースからスワップ実行
+        niriLog("[drag] swap: \(draggedID) ↔ \(targetID)")
+        for i in screens.indices {
+            for j in screens[i].workspaces.indices {
+                let hasDragged = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
+                let hasTarget  = screens[i].workspaces[j].columnIndex(for: targetID) != nil
+                if hasDragged && hasTarget {
+                    screens[i].workspaces[j].swapWindows(draggedID, targetID)
+                    break
+                }
+            }
+        }
+        needsLayout = true
+    }
 
     /// Feature 1: クリックでフォーカス同期
     /// クリック座標（Quartz）を lastComputedFrames と照合し activeColumnIndex を更新する

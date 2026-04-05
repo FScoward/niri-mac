@@ -9,6 +9,9 @@ final class MouseEventManager {
     /// 左クリック時のスクリーン座標（Quartz座標系）
     var onMouseDown: ((CGPoint) -> Void)?
 
+    /// 左ボタンリリース時のスクリーン座標（Quartz座標系）
+    var onMouseUp: ((CGPoint) -> Void)?
+
     /// スクロール時: 水平デルタ（正=右方向）、垂直デルタ（正=下方向）、isContinuous、修飾キー
     var onScroll: ((CGFloat, CGFloat, Bool, NSEvent.ModifierFlags) -> Void)?
 
@@ -45,6 +48,7 @@ final class MouseEventManager {
     private func startCGEventTap() {
         let mask = CGEventMask(
             (1 << CGEventType.leftMouseDown.rawValue) |
+            (1 << CGEventType.leftMouseUp.rawValue) |
             (1 << CGEventType.scrollWheel.rawValue)
         )
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
@@ -82,6 +86,12 @@ final class MouseEventManager {
             // CGEvent.location は Quartz座標（左上原点）なのでそのまま渡す
             DispatchQueue.main.async { [weak self] in
                 self?.onMouseDown?(loc)
+            }
+
+        case .leftMouseUp:
+            let loc = event.location
+            DispatchQueue.main.async { [weak self] in
+                self?.onMouseUp?(loc)
             }
 
         case .scrollWheel:

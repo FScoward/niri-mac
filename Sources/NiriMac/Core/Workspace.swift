@@ -146,6 +146,28 @@ struct Workspace {
         columns.firstIndex { $0.windows.contains(windowID) }
     }
 
+    /// 2つのウィンドウIDをスワップする（同一カラム内・異なるカラム間どちらも可）
+    mutating func swapWindows(_ a: WindowID, _ b: WindowID) {
+        guard a != b else { return }
+        guard let (colA, winA) = findWindowPosition(a),
+              let (colB, winB) = findWindowPosition(b) else { return }
+        columns[colA].windows[winA] = b
+        columns[colB].windows[winB] = a
+        let widthA = columns[colA].width
+        columns[colA].width = columns[colB].width
+        columns[colB].width = widthA
+    }
+
+    /// ウィンドウIDのカラムインデックスとウィンドウインデックスを返す
+    private func findWindowPosition(_ id: WindowID) -> (colIdx: Int, winIdx: Int)? {
+        for (colIdx, col) in columns.enumerated() {
+            if let winIdx = col.windows.firstIndex(of: id) {
+                return (colIdx, winIdx)
+            }
+        }
+        return nil
+    }
+
     /// 指定ウィンドウIDを全カラムから削除し、空になったカラムも削除
     mutating func removeWindow(_ id: WindowID) {
         for i in (0..<columns.count).reversed() {
