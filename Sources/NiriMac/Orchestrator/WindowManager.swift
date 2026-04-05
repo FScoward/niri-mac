@@ -30,7 +30,8 @@ final class WindowManager {
     private let observer: AXObserverBridge
     private let keyboard: KeyboardShortcutManager
     private let mouse: MouseEventManager
-    private let config: LayoutConfig
+    private var config: LayoutConfig
+    private let focusOverlayManager = FocusOverlayManager()
     private let spaceBridge = SpaceBridge()
 
     private var displayLink: CVDisplayLink?
@@ -104,6 +105,7 @@ final class WindowManager {
     }
 
     func stop() {
+        focusOverlayManager.removeAll()
         keyboard.stop()
         mouse.stop()
         observer.stopObserving()
@@ -459,6 +461,21 @@ final class WindowManager {
         needsLayout = true
     }
 
+    // MARK: - Focus Highlight Toggles
+
+    var focusBorderEnabled: Bool { config.focusBorderEnabled }
+    var focusDimEnabled: Bool { config.focusDimEnabled }
+
+    func toggleFocusBorder() {
+        config.focusBorderEnabled.toggle()
+        needsLayout = true
+    }
+
+    func toggleFocusDim() {
+        config.focusDimEnabled.toggle()
+        needsLayout = true
+    }
+
     func handleAction(_ action: KeyboardShortcutManager.Action) {
         let screenIdx = activeScreenIndex()
         guard screenIdx < screens.count else { return }
@@ -611,6 +628,21 @@ final class WindowManager {
             _ = screenIdx  // suppress warning
         }
         lastComputedFrames = allFrames
+
+        // フォーカスオーバーレイを更新（parkedWindowIDs を除いた可視フレームのみ渡す）
+        let visibleFrames = allFrames.filter { !parkedWindowIDs.contains($0.0) }
+        let screenIdx = activeScreenIndex()
+        let focusedID: WindowID? = screenIdx < screens.count
+            ? screens[screenIdx].activeWorkspace.activeWindowID
+            : nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.focusOverlayManager.update(
+                focusedID: focusedID,
+                allFrames: visibleFrames,
+                config: self.config
+            )
+        }
     }
 
     /// 画面外判定。ウィンドウが workingArea の完全外側にある場合のみ off-screen とする。
