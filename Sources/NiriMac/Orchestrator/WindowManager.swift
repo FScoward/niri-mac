@@ -397,6 +397,15 @@ final class WindowManager {
         }
     }
 
+    /// メニューバー用: アクティブカラムが現在 pin されているかを返す
+    var activeColumnIsPinned: Bool {
+        let idx = activeScreenIndex()
+        guard idx < screens.count else { return false }
+        let ws = screens[idx].activeWorkspace
+        guard !ws.columns.isEmpty, ws.activeColumnIndex < ws.columns.count else { return false }
+        return ws.columns[ws.activeColumnIndex].isPinned
+    }
+
     func handleAction(_ action: KeyboardShortcutManager.Action) {
         let screenIdx = activeScreenIndex()
         guard screenIdx < screens.count else { return }

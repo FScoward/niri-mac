@@ -1,9 +1,10 @@
 import AppKit
 import Foundation
 
-final class NiriMacApp: NSObject, NSApplicationDelegate {
+final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var windowManager: WindowManager?
     private var statusItem: NSStatusItem?
+    private var pinMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         printDiagnostics()
@@ -48,11 +49,28 @@ final class NiriMacApp: NSObject, NSApplicationDelegate {
             button.toolTip = "niri-mac"
         }
 
+        let pinItem = NSMenuItem(title: "Pin Column", action: #selector(togglePin), keyEquivalent: "")
+        pinItem.target = self
+        self.pinMenuItem = pinItem
+
         let menu = NSMenu()
+        menu.delegate = self
         menu.addItem(NSMenuItem(title: "niri-mac", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(pinItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
         statusItem?.menu = menu
+    }
+
+    /// メニューが開く直前にアクティブカラムの pin 状態を反映してタイトルを更新する
+    func menuWillOpen(_ menu: NSMenu) {
+        let isPinned = windowManager?.activeColumnIsPinned ?? false
+        pinMenuItem?.title = isPinned ? "Unpin Column" : "Pin Column"
+    }
+
+    @objc private func togglePin() {
+        windowManager?.handleAction(.togglePin)
     }
 
     @objc private func quit() {
