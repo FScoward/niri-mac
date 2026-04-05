@@ -9,6 +9,7 @@ final class AXObserverBridge {
     var onWindowResized: ((WindowID, CGRect) -> Void)?
     var onApplicationLaunched: ((pid_t) -> Void)?
     var onApplicationTerminated: ((pid_t) -> Void)?
+    var onSpaceChanged: (() -> Void)?
 
     private var observers: [pid_t: AXObserver] = [:]
     private var notificationCenter = NotificationCenter.default
@@ -47,7 +48,15 @@ final class AXObserverBridge {
             self?.onApplicationTerminated?(pid)
         }
 
-        workspaceObservers = [launched, terminated]
+        let spaceChanged = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.onSpaceChanged?()
+        }
+
+        workspaceObservers = [launched, terminated, spaceChanged]
     }
 
     func stopObserving() {
