@@ -46,11 +46,10 @@ struct Workspace {
         return xs
     }
 
-    /// アクティブカラムが画面中央に来るよう viewOffset を更新
+    /// アクティブカラムが画面内に収まるよう viewOffset を最小限更新（仕様書 §5）
     ///
-    /// 本家 niri の compute_new_view_offset に合わせた常時センタリング方式:
-    /// - アクティブカラムを常に画面中央に配置する
-    /// - 右端・左端クランプで画面外に出ないよう制限する
+    /// 既に完全に workingArea 内に収まっている場合は何もしない。
+    /// はみ出している場合のみ、最小限のスクロールで画面内に収める。
     mutating func recenterViewOffset(gap: CGFloat = 16, animated: Bool = true) {
         guard !columns.isEmpty, activeColumnIndex < columns.count else {
             if animated {
@@ -65,16 +64,31 @@ struct Workspace {
         let activeX = xs[activeColumnIndex]
         let activeWidth = columns[activeColumnIndex].width
         let effectiveWidth = workingArea.width
+        let currentOffset = viewOffset.current
 
-        // センタリング: アクティブカラムの中心を画面中心に合わせる
-        let target = -(activeX + activeWidth / 2 - effectiveWidth / 2)
+        // 1. アクティブカラムの現在のスクリーン上の位置
+        let screenLeft  = activeX + currentOffset
+        let screenRight = screenLeft + activeWidth
 
-        // 右端クランプ: 最終カラム右端が画面右端を超えないよう制限
+        // 2. 既に完全に workingArea 内に収まっている → 何もしない
+        if screenLeft >= 0 && screenRight <= effectiveWidth {
+            return
+        }
+
+        // 3 & 4. 最小限スクロール
+        let newOffset: CGFloat
+        if screenLeft < 0 {
+            // 左にはみ出し → 右へスクロール（左端に gap 余白）
+            newOffset = -activeX + gap
+        } else {
+            // 右にはみ出し → 左へスクロール（右端に gap 余白）
+            newOffset = -(activeX + activeWidth - effectiveWidth + gap)
+        }
+
+        // 5. クランプ
         let lastX = xs.last! + columns.last!.width
         let minOffset = min(0, effectiveWidth - gap * 2 - lastX)
-
-        // 左端クランプ: オフセットが正にならないよう制限
-        let clampedOffset = max(minOffset, min(0, target))
+        let clampedOffset = max(minOffset, min(0, newOffset))
 
         if animated {
             viewOffset.animateTo(clampedOffset)

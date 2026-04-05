@@ -462,21 +462,20 @@ final class WindowManager {
             let parkX = screen.frame.maxX + config.gapWidth
             var parkY = screen.frame.minY
 
+            let workingArea = ws.workingArea
             for (windowID, frame) in frames {
                 let title = windowRegistry[windowID]?.title ?? "?"
-                niriLog("[layout]   win=\(windowID) '\(title)' frame=\(frame) offScreen=\(isWindowOffScreen(frame, screen: screen))")
-                applyWindowVisibility(windowID: windowID, frame: frame, screen: screen, parkX: parkX, parkY: &parkY)
+                niriLog("[layout]   win=\(windowID) '\(title)' frame=\(frame) offScreen=\(isWindowOffScreen(frame, workingArea: workingArea))")
+                applyWindowVisibility(windowID: windowID, frame: frame, screen: screen, workingArea: workingArea, parkX: parkX, parkY: &parkY)
             }
             _ = screenIdx  // suppress warning
         }
         lastComputedFrames = allFrames
     }
 
-    /// 画面外判定: ウィンドウの中心(midX)が画面端を越えたら画面外とみなす（左右対称）
-    private func isWindowOffScreen(_ frame: CGRect, screen: Screen) -> Bool {
-        let isOffLeft  = frame.midX < screen.frame.minX
-        let isOffRight = frame.midX >= screen.frame.maxX
-        return isOffLeft || isOffRight
+    /// 画面外判定。ウィンドウが workingArea の完全外側にある場合のみ off-screen とする。
+    private func isWindowOffScreen(_ frame: CGRect, workingArea: CGRect) -> Bool {
+        return frame.maxX <= workingArea.minX || frame.minX >= workingArea.maxX
     }
 
     /// 画面内外に応じてウィンドウを完全非表示/復帰する。
@@ -486,26 +485,30 @@ final class WindowManager {
         windowID: WindowID,
         frame: CGRect,
         screen: Screen,
+        workingArea: CGRect,
         parkX: CGFloat,
         parkY: inout CGFloat
     ) {
-        if isWindowOffScreen(frame, screen: screen) {
+        if isWindowOffScreen(frame, workingArea: workingArea) {
             // キャッシュ済みならスキップ（毎フレームのsetFrame呼び出しを防ぐ）
             if parkedWindowIDs.contains(windowID) { return }
 
-            // 左右どちらに出ているかで完全非表示位置を決定
+            // 左右どちらに出ているかで退避方向を決定（反対側に飛ばさない）
             let hiddenX: CGFloat
-            if frame.midX < screen.frame.minX {
-                // 左側: ウィンドウ全体が画面左端より外に出るよう移動
-                hiddenX = screen.frame.minX - frame.width - 1
+            if frame.minX < workingArea.minX {
+                hiddenX = workingArea.minX - frame.width - 1
             } else {
-                // 右側: ウィンドウ全体が画面右端より外に出るよう移動
-                hiddenX = screen.frame.maxX + 1
+                hiddenX = parkX
             }
             let hiddenFrame = CGRect(x: hiddenX, y: frame.origin.y, width: frame.width, height: frame.height)
-            parkedWindowIDs.insert(windowID)
-            niriLog("[layout]   🅿️ hide win=\(windowID) → x=\(Int(hiddenX))")
+            niriLog("[layout]   🅿️ hide win=\(windowID) → x=\(Int(parkX))")
             try? axBridge.setWindowFrame(windowID, frame: hiddenFrame)
+            // 実際に移動できたときだけキャッシュに追加（失敗時は次フレームで再試行）
+            if let actual = axBridge.windowFrame(windowID), isWindowOffScreen(actual, workingArea: workingArea) {
+                parkedWindowIDs.insert(windowID)
+            } else {
+                niriLog("[layout]   ⚠️ hide失敗 win=\(windowID) actual.x=\(Int(axBridge.windowFrame(windowID)?.origin.x ?? -1))")
+            }
         } else {
             // 画面内に戻った → キャッシュから除去して通常setFrame
             if parkedWindowIDs.contains(windowID) {

@@ -4,6 +4,9 @@ import PackageDescription
 let package = Package(
     name: "niri-mac",
     platforms: [.macOS(.v13)],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-testing.git", from: "0.10.0"),
+    ],
     targets: [
         .executableTarget(
             name: "NiriMac",
@@ -15,6 +18,13 @@ let package = Package(
                 .linkedFramework("CoreFoundation"),
                 .linkedFramework("IOKit"),
             ]
+        ),
+        .testTarget(
+            name: "NiriMacTests",
+            dependencies: [
+                .product(name: "Testing", package: "swift-testing"),
+            ],
+            path: "Tests/NiriMacTests"
         ),
     ]
 )

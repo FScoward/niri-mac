@@ -5,13 +5,13 @@ struct LayoutConfig {
     var gapWidth: CGFloat = 16
 
     /// カラム内ウィンドウ間のギャップ
-    var gapHeight: CGFloat = 8
+    var gapHeight: CGFloat = 16
 
     /// 新規ウィンドウのデフォルトカラム幅
-    var defaultColumnWidthFraction: CGFloat = 0.5
+    var defaultColumnWidthFraction: CGFloat = 1.0 / 3.0
 
     /// ウィンドウアニメーション時間（秒）
-    var animationDuration: CFTimeInterval = 0.2
+    var animationDuration: CFTimeInterval = 0.25
 
     /// メニューバーの高さ（デフォルト）
     var menuBarHeight: CGFloat = 24
