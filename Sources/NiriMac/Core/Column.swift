@@ -31,10 +31,17 @@ struct Column {
 
     mutating func removeWindow(_ id: WindowID) {
         guard let idx = windows.firstIndex(of: id) else { return }
+        let wasActive = idx == activeWindowIndex
         windows.remove(at: idx)
-        if activeWindowIndex >= windows.count {
-            activeWindowIndex = max(0, windows.count - 1)
+        guard !windows.isEmpty else { return }
+        if wasActive {
+            // 右優先: 削除後の同インデックス（右隣）、末尾超えなら最後（左隣）
+            activeWindowIndex = min(idx, windows.count - 1)
+        } else if idx < activeWindowIndex {
+            // アクティブより前を削除 → インデックスをずらしてフォーカスを維持
+            activeWindowIndex -= 1
         }
+        // アクティブより後を削除 → 何もしない
     }
 
     mutating func focusNext() {

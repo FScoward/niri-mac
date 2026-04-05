@@ -345,6 +345,8 @@ final class WindowManager {
         // (既存ウィンドウの再検出を防ぐ)
         windowRegistry[window.id] = window
         axBridge.registerElement(window.axElement, for: window.id)
+        // ウィンドウ要素に破棄通知を個別登録（appElement への登録では発火しないため）
+        observer.registerWindowDestroyedNotification(for: window.axElement, pid: window.ownerPID)
 
         // screen.frame も Quartz 座標なのでそのまま比較
         guard !screens.isEmpty else { return }
@@ -373,20 +375,33 @@ final class WindowManager {
 
     private func handleWindowDestroyed(_ id: WindowID) {
         guard windowRegistry[id] != nil else { return }
+
+        // アクティブウィンドウかどうかを削除前に確認（②）
+        let screenIdx = activeScreenIndex()
+        let wasActive = screenIdx < screens.count &&
+            screens[screenIdx].activeWorkspace.activeWindowID == id
+
         windowRegistry.removeValue(forKey: id)
         axBridge.removeElement(for: id)
         parkedWindowIDs.remove(id)
 
+        // ドラッグ状態をクリア（③）
+        if mouseDownWindowID == id { mouseDownWindowID = nil }
+        if draggedWindowID == id { draggedWindowID = nil }
+
         for i in screens.indices {
             for j in screens[i].workspaces.indices {
                 screens[i].workspaces[j].removeWindow(id)
+                // カラム削除後に viewOffset を再センタリング（④）
+                screens[i].workspaces[j].recenterViewOffset(animated: true)
             }
         }
 
         applyLayout()
-        focusActiveWindow()
+        // アクティブウィンドウが閉じた場合のみフォーカスを移動（②）
+        if wasActive { focusActiveWindow() }
 
-        print("[niri-mac] Window destroyed: \(id)")
+        niriLog("[niri-mac] Window destroyed: \(id)")
     }
 
     private func handleApplicationTerminated(pid: pid_t) {

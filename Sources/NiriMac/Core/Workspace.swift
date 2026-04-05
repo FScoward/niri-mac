@@ -107,8 +107,17 @@ struct Workspace {
         let screenLeft  = activeX + currentOffset
         let screenRight = screenLeft + activeWidth
 
-        // 2. 既に完全に収まっている → 何もしない
+        // 2. 既に完全に収まっている場合でも、コンテンツ縮小で右側に空白が生じていればクランプ
         if screenLeft >= 0 && screenRight <= effectiveWidth {
+            let lastX = xs.last! + nonPinnedCols.last!.width
+            let minOffset = min(0, effectiveWidth - gap * 2 - lastX)
+            if currentOffset < minOffset {
+                if animated {
+                    viewOffset.animateTo(minOffset)
+                } else {
+                    viewOffset = .static(offset: minOffset)
+                }
+            }
             return
         }
 
@@ -143,10 +152,20 @@ struct Workspace {
 
     mutating func removeColumn(at index: Int) {
         guard index < columns.count else { return }
+        let wasActive = index == activeColumnIndex
         columns.remove(at: index)
-        if activeColumnIndex >= columns.count {
-            activeColumnIndex = max(0, columns.count - 1)
+        guard !columns.isEmpty else {
+            activeColumnIndex = 0
+            return
         }
+        if wasActive {
+            // 右優先: 削除後の同インデックス（右隣）、末尾超えなら最後（左隣）
+            activeColumnIndex = min(index, columns.count - 1)
+        } else if index < activeColumnIndex {
+            // アクティブより前を削除 → インデックスをずらしてフォーカスを維持
+            activeColumnIndex -= 1
+        }
+        // アクティブより後を削除 → 何もしない
     }
 
     mutating func focusColumn(at index: Int) {
