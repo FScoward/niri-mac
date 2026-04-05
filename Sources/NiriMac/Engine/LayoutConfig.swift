@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 
 struct LayoutConfig {
@@ -28,4 +29,21 @@ struct LayoutConfig {
     func defaultColumnWidth(for screenWidth: CGFloat) -> CGFloat {
         return screenWidth * defaultColumnWidthFraction
     }
+
+    // MARK: - Focus Highlight
+
+    /// フォーカス枠線の表示有無
+    var focusBorderEnabled: Bool = false
+
+    /// 枠線の色（デフォルト: システムブルー）
+    var focusBorderColor: CGColor = NSColor.systemBlue.cgColor
+
+    /// 枠線の幅（px）
+    var focusBorderWidth: CGFloat = 4.0
+
+    /// 非フォーカスウィンドウのディム表示有無
+    var focusDimEnabled: Bool = false
+
+    /// ディムの不透明度（0.0〜1.0）
+    var focusDimOpacity: CGFloat = 0.4
 }
