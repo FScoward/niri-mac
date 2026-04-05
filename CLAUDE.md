@@ -131,3 +131,7 @@ AccessibilityBridge.setWindowFrame()  ← AX API で実際に移動
 - `[action]` — キーボード/マウスアクション実行（`WindowManager.handleAction` 内）
 - `[space]` — CGS Space API 呼び出し
 - `[niri-mac]` — 起動・バージョン情報
+
+## 受け入れ条件の記載ルール
+
+→ `.claude/acceptance-criteria.md` 参照

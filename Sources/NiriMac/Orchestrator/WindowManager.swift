@@ -68,6 +68,22 @@ final class WindowManager {
     /// スワップ直後のクールダウン終了時刻（applyLayout 由来の windowMoved 誤検知を防ぐ）
     private var swapCooldownEnd: Date = .distantPast
 
+    /// 最後に検知したスペースID（同一スペースの重複処理を防ぐ）
+    private var lastKnownSpaceID: UInt64? = nil
+
+    /// スペース切り替えのデバウンスタイマー
+    private var spaceChangedDebounceTimer: Timer? = nil
+
+    /// macOSスペースごとのビュー状態
+    private struct SpaceState {
+        var columns: [Column]
+        var activeColumnIndex: Int
+        var viewOffset: CGFloat
+    }
+
+    /// スペースIDをキーに状態を記憶
+    private var spaceStates: [UInt64: SpaceState] = [:]
+
     init(config: LayoutConfig = LayoutConfig()) {
         self.axBridge = AccessibilityBridge()
         self.observer = AXObserverBridge()
@@ -94,6 +110,8 @@ final class WindowManager {
 
         setupScreens()
         discoverExistingWindows()
+        lastKnownSpaceID = spaceBridge.currentSpaceID()
+        niriLog("[space-sync] initial spaceID=\(lastKnownSpaceID.map { String($0) } ?? "nil")")
         setupObserver()
         setupKeyboard()
         setupMouse()
@@ -157,6 +175,91 @@ final class WindowManager {
                 screens[i].activeWorkspace.recenterViewOffset(gap: config.gapWidth, animated: false)
             }
         }
+    }
+
+    private func syncWindowsForCurrentSpace() {
+        guard let currentSpaceID = spaceBridge.currentSpaceID() else {
+            niriLog("[space-sync] currentSpaceID() returned nil — skip")
+            return
+        }
+        guard currentSpaceID != lastKnownSpaceID else { return }
+
+        niriLog("[space-sync] spaceID changed: \(lastKnownSpaceID.map { String($0) } ?? "nil") → \(currentSpaceID)")
+
+        // 離脱前のスペース状態をcolumnsごと保存
+        if let previousSpaceID = lastKnownSpaceID {
+            for screen in screens {
+                let ws = screen.activeWorkspace
+                spaceStates[previousSpaceID] = SpaceState(
+                    columns: ws.columns,
+                    activeColumnIndex: ws.activeColumnIndex,
+                    viewOffset: ws.viewOffset.current
+                )
+            }
+            niriLog("[space-sync] saved state for spaceID=\(previousSpaceID)")
+        }
+
+        lastKnownSpaceID = currentSpaceID
+
+        let freshWindows = axBridge.allWindows()
+
+        // 現在のスペースに属するウィンドウIDを特定
+        var currentSpaceWindowIDs: Set<WindowID> = []
+        for window in freshWindows {
+            let spaces = spaceBridge.spacesForWindow(windowID: window.id)
+            if spaces.contains(currentSpaceID) {
+                currentSpaceWindowIDs.insert(window.id)
+            }
+        }
+        niriLog("[space-sync] currentSpace windows: \(currentSpaceWindowIDs.sorted())")
+
+        for i in screens.indices {
+            if let saved = spaceStates[currentSpaceID] {
+                // 保存済みカラム配置を復元（存在しないウィンドウをフィルタ）
+                var restoredColumns = saved.columns.compactMap { col -> Column? in
+                    let validWindows = col.windows.filter { currentSpaceWindowIDs.contains($0) }
+                    guard !validWindows.isEmpty else { return nil }
+                    var newCol = col
+                    newCol.windows = validWindows
+                    newCol.activeWindowIndex = min(col.activeWindowIndex, validWindows.count - 1)
+                    return newCol
+                }
+
+                // 保存済みカラムに含まれていない新規ウィンドウを末尾に追加
+                let savedWindowIDs = Set(restoredColumns.flatMap { $0.windows })
+                let newWindowIDs = currentSpaceWindowIDs.subtracting(savedWindowIDs)
+                for window in freshWindows where newWindowIDs.contains(window.id) {
+                    windowRegistry[window.id] = window
+                    axBridge.registerElement(window.axElement, for: window.id)
+                    let col = Column(windows: [window.id], width: window.frame.width)
+                    restoredColumns.append(col)
+                    niriLog("[space-sync] added new window to layout: \(window.id)")
+                }
+
+                screens[i].workspaces[screens[i].activeWorkspaceIndex].columns = restoredColumns
+                let safeIdx = min(saved.activeColumnIndex, max(0, restoredColumns.count - 1))
+                screens[i].workspaces[screens[i].activeWorkspaceIndex].activeColumnIndex = safeIdx
+                screens[i].workspaces[screens[i].activeWorkspaceIndex].viewOffset = .static(offset: saved.viewOffset)
+                niriLog("[space-sync] restored state for spaceID=\(currentSpaceID) offset=\(saved.viewOffset) col=\(safeIdx)")
+            } else {
+                // 初回訪問: レイアウトをクリアして再構築
+                screens[i].workspaces[screens[i].activeWorkspaceIndex].columns = []
+                screens[i].workspaces[screens[i].activeWorkspaceIndex].activeColumnIndex = 0
+                for window in freshWindows where currentSpaceWindowIDs.contains(window.id) {
+                    windowRegistry[window.id] = window
+                    axBridge.registerElement(window.axElement, for: window.id)
+                    assignWindowToScreen(window)
+                }
+                screens[i].workspaces[screens[i].activeWorkspaceIndex].recenterViewOffset(gap: config.gapWidth, animated: false)
+                niriLog("[space-sync] first visit spaceID=\(currentSpaceID) — recentered")
+            }
+        }
+
+        parkedWindowIDs.removeAll()
+        applyLayout(animated: false)
+        focusActiveWindow()
+
+        niriLog("[space-sync] layout applied (\(currentSpaceWindowIDs.count) windows)")
     }
 
     private func assignWindowToScreen(_ window: WindowInfo) {
@@ -229,6 +332,18 @@ final class WindowManager {
             if distance > self.dragThreshold {
                 self.draggedWindowID = windowID
                 niriLog("[drag] drag confirmed: win=\(windowID)")
+            }
+        }
+        observer.onSpaceChanged = { [weak self] in
+            guard let self else { return }
+            self.spaceChangedDebounceTimer?.invalidate()
+            self.spaceChangedDebounceTimer = Timer.scheduledTimer(
+                withTimeInterval: 0.3,
+                repeats: false
+            ) { [weak self] _ in
+                guard let self else { return }
+                niriLog("[space-sync] activeSpaceDidChange detected")
+                self.syncWindowsForCurrentSpace()
             }
         }
         observer.startObserving()
