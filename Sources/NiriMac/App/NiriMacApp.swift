@@ -7,6 +7,8 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pinMenuItem: NSMenuItem?
     /// menuWillOpen 時点のカラムインデックスを保持（クリック後のフォーカス変化対策）
     private var pinnedTargetColumnIndex: Int?
+    private var focusBorderMenuItem: NSMenuItem?
+    private var focusDimMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         printDiagnostics()
@@ -61,6 +63,18 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(pinItem)
         menu.addItem(NSMenuItem.separator())
+
+        let borderItem = NSMenuItem(title: "Focus Border", action: #selector(toggleFocusBorder), keyEquivalent: "")
+        borderItem.target = self
+        self.focusBorderMenuItem = borderItem
+        menu.addItem(borderItem)
+
+        let dimItem = NSMenuItem(title: "Focus Dim", action: #selector(toggleFocusDim), keyEquivalent: "")
+        dimItem.target = self
+        self.focusDimMenuItem = dimItem
+        menu.addItem(dimItem)
+
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
         statusItem?.menu = menu
     }
@@ -71,10 +85,20 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pinnedTargetColumnIndex = windowManager?.activeColumnIndex
         let isPinned = windowManager?.activeColumnIsPinned ?? false
         pinMenuItem?.title = isPinned ? "Unpin Column" : "Pin Column"
+        focusBorderMenuItem?.state = windowManager?.focusBorderEnabled == true ? .on : .off
+        focusDimMenuItem?.state = windowManager?.focusDimEnabled == true ? .on : .off
     }
 
     @objc private func togglePin() {
         windowManager?.handleAction(.togglePin, forColumnIndex: pinnedTargetColumnIndex)
+    }
+
+    @objc private func toggleFocusBorder() {
+        windowManager?.toggleFocusBorder()
+    }
+
+    @objc private func toggleFocusDim() {
+        windowManager?.toggleFocusDim()
     }
 
     @objc private func quit() {
