@@ -109,6 +109,10 @@ final class WindowManager {
             return
         }
 
+        // 除外アプリ設定を読み込む
+        config.excludedBundleIDs = ExclusionStore.load()
+        niriLog("[exclusion] loaded \(config.excludedBundleIDs.count) excluded apps: \(config.excludedBundleIDs.sorted())")
+
         setupScreens()
         discoverExistingWindows()
         lastKnownSpaceID = spaceBridge.currentSpaceID()
@@ -128,6 +132,13 @@ final class WindowManager {
         mouse.stop()
         observer.stopObserving()
         stopDisplayLink()
+    }
+
+    // MARK: - App Exclusion
+
+    private func isExcluded(_ window: WindowInfo) -> Bool {
+        guard let bundleID = window.ownerBundleID else { return false }
+        return config.excludedBundleIDs.contains(bundleID)
     }
 
     // MARK: - Setup
@@ -167,6 +178,10 @@ final class WindowManager {
     private func discoverExistingWindows() {
         let windows = axBridge.allWindows()
         for window in windows {
+            guard !isExcluded(window) else {
+                niriLog("[exclusion] skip '\(window.ownerBundleID ?? "?")'  windowID=\(window.id)")
+                continue
+            }
             windowRegistry[window.id] = window
             assignWindowToScreen(window)
         }
@@ -231,6 +246,7 @@ final class WindowManager {
                 let savedWindowIDs = Set(restoredColumns.flatMap { $0.windows })
                 let newWindowIDs = currentSpaceWindowIDs.subtracting(savedWindowIDs)
                 for window in freshWindows where newWindowIDs.contains(window.id) {
+                    guard !isExcluded(window) else { continue }
                     windowRegistry[window.id] = window
                     axBridge.registerElement(window.axElement, for: window.id)
                     let col = Column(windows: [window.id], width: window.frame.width)
@@ -248,6 +264,7 @@ final class WindowManager {
                 screens[i].workspaces[screens[i].activeWorkspaceIndex].columns = []
                 screens[i].workspaces[screens[i].activeWorkspaceIndex].activeColumnIndex = 0
                 for window in freshWindows where currentSpaceWindowIDs.contains(window.id) {
+                    guard !isExcluded(window) else { continue }
                     windowRegistry[window.id] = window
                     axBridge.registerElement(window.axElement, for: window.id)
                     assignWindowToScreen(window)
@@ -457,6 +474,10 @@ final class WindowManager {
 
     private func handleWindowCreated(_ window: WindowInfo) {
         guard windowRegistry[window.id] == nil else { return }
+        guard !isExcluded(window) else {
+            niriLog("[exclusion] skip '\(window.ownerBundleID ?? "?")'  windowID=\(window.id)")
+            return
+        }
 
         // windowRegistry に未登録のウィンドウのみ追加
         // (既存ウィンドウの再検出を防ぐ)
@@ -574,6 +595,55 @@ final class WindowManager {
         screens[screenIdx].activeWorkspace.columns[colIdx].isPinned = !current
         niriLog("[action] togglePin(menu) col=\(colIdx) pinned=\(!current)")
         needsLayout = true
+    }
+
+    // MARK: - App Exclusion API（メニューバー用）
+
+    /// 現在フォーカス中のアプリの bundleID（取得できない場合は nil）
+    var focusedAppBundleID: String? {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
+        return app.bundleIdentifier
+    }
+
+    /// 除外アプリ一覧（bundleID と表示名のペア）
+    var excludedApps: [(bundleID: String, name: String)] {
+        config.excludedBundleIDs.sorted().map { bundleID in
+            let name = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                .first?.localizedName
+                ?? bundleID
+            return (bundleID: bundleID, name: name)
+        }
+    }
+
+    /// アプリを除外リストに追加し、既存ウィンドウをレイアウトから即座に削除する
+    func excludeApp(bundleID: String) {
+        guard !config.excludedBundleIDs.contains(bundleID) else { return }
+        config.excludedBundleIDs.insert(bundleID)
+        ExclusionStore.save(config.excludedBundleIDs)
+        niriLog("[exclusion] excluded '\(bundleID)'")
+
+        // 既にタイリングに入っているウィンドウを即座に除去
+        let toRemove = windowRegistry.values
+            .filter { $0.ownerBundleID == bundleID }
+            .map { $0.id }
+        for id in toRemove {
+            handleWindowDestroyed(id)
+        }
+    }
+
+    /// アプリを除外リストから削除する
+    func includeApp(bundleID: String) {
+        guard config.excludedBundleIDs.contains(bundleID) else { return }
+        config.excludedBundleIDs.remove(bundleID)
+        ExclusionStore.save(config.excludedBundleIDs)
+        niriLog("[exclusion] included '\(bundleID)'")
+
+        // 既に起動中のウィンドウを即座にタイリングへ復帰させる
+        let windows = axBridge.allWindows().filter { $0.ownerBundleID == bundleID }
+        for window in windows {
+            handleWindowCreated(window)
+        }
     }
 
     // MARK: - Focus Highlight Toggles

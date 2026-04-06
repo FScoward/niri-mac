@@ -46,4 +46,9 @@ struct LayoutConfig {
 
     /// ディムの不透明度（0.0〜1.0）
     var focusDimOpacity: CGFloat = 0.4
+
+    // MARK: - App Exclusion
+
+    /// タイリングから除外するアプリの bundleID セット
+    var excludedBundleIDs: Set<String> = []
 }
