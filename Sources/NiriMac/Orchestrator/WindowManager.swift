@@ -632,12 +632,18 @@ final class WindowManager {
         }
     }
 
-    /// アプリを除外リストから削除する（ウィンドウ復帰は次回起動時）
+    /// アプリを除外リストから削除する
     func includeApp(bundleID: String) {
         guard config.excludedBundleIDs.contains(bundleID) else { return }
         config.excludedBundleIDs.remove(bundleID)
         ExclusionStore.save(config.excludedBundleIDs)
         niriLog("[exclusion] included '\(bundleID)'")
+
+        // 既に起動中のウィンドウを即座にタイリングへ復帰させる
+        let windows = axBridge.allWindows().filter { $0.ownerBundleID == bundleID }
+        for window in windows {
+            handleWindowCreated(window)
+        }
     }
 
     // MARK: - Focus Highlight Toggles
