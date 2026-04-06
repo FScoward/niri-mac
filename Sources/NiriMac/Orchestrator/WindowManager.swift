@@ -35,6 +35,7 @@ final class WindowManager {
     private let mouse: MouseEventManager
     private var config: LayoutConfig
     private let focusOverlayManager = FocusOverlayManager()
+    private let dropTargetOverlay = DropTargetOverlayManager()
     private let spaceBridge = SpaceBridge()
 
     private var displayLink: CVDisplayLink?
@@ -413,11 +414,24 @@ final class WindowManager {
         }
         mouse.onMouseUp = { [weak self] point in
             guard let self else { return }
+            self.dropTargetOverlay.hide()
             self.isMouseDown = false
             self.mouseDownWindowID = nil
             self.mouseDownFrame = nil
             self.needsLayout = true  // リサイズ・スワップ確定時にレイアウトを適用
             self.handleMouseUp(at: point)
+        }
+        mouse.onMouseDragged = { [weak self] point in
+            guard let self, let draggedID = self.draggedWindowID else {
+                self?.dropTargetOverlay.hide()
+                return
+            }
+            for (windowID, frame) in self.lastComputedFrames {
+                guard frame.contains(point), windowID != draggedID else { continue }
+                self.dropTargetOverlay.show(frame: frame)
+                return
+            }
+            self.dropTargetOverlay.hide()
         }
         mouse.onAppActivated = { [weak self] in
             guard let self else { return }
@@ -546,6 +560,7 @@ final class WindowManager {
 
     private func handleWindowDestroyed(_ id: WindowID) {
         guard windowRegistry[id] != nil else { return }
+        dropTargetOverlay.hide()
 
         // アクティブウィンドウかどうかを削除前に確認（②）
         let screenIdx = activeScreenIndex()
@@ -796,6 +811,26 @@ final class WindowManager {
             screens[screenIdx].activeWorkspace.columns[activeIdx].isPinned = !current
             niriLog("[action] togglePin col=\(activeIdx) pinned=\(!current)")
 
+        case .moveWindowUpInColumn:
+            niriLog("[action] moveWindowUpInColumn")
+            let colIdx = screens[screenIdx].activeWorkspace.activeColumnIndex
+            screens[screenIdx].activeWorkspace.columns[colIdx].moveActiveWindowUp()
+
+        case .moveWindowDownInColumn:
+            niriLog("[action] moveWindowDownInColumn")
+            let colIdx = screens[screenIdx].activeWorkspace.activeColumnIndex
+            screens[screenIdx].activeWorkspace.columns[colIdx].moveActiveWindowDown()
+
+        case .growWindowHeight:
+            niriLog("[action] growWindowHeight")
+            let colIdx = screens[screenIdx].activeWorkspace.activeColumnIndex
+            screens[screenIdx].activeWorkspace.columns[colIdx].resizeActiveWindowHeight(delta: 0.10)
+
+        case .shrinkWindowHeight:
+            niriLog("[action] shrinkWindowHeight")
+            let colIdx = screens[screenIdx].activeWorkspace.activeColumnIndex
+            screens[screenIdx].activeWorkspace.columns[colIdx].resizeActiveWindowHeight(delta: -0.10)
+
         case .quit:
             stop()
             NSApplication.shared.terminate(nil)
@@ -867,6 +902,9 @@ final class WindowManager {
         parkX: CGFloat,
         parkY: inout CGFloat
     ) {
+        // ドラッグ中のウィンドウは WM が位置を上書きしない（スナップバックを防ぐ）
+        if windowID == draggedWindowID { return }
+
         if isWindowOffScreen(frame, workingArea: workingArea) {
             // キャッシュ済みならスキップ（毎フレームのsetFrame呼び出しを防ぐ）
             if parkedWindowIDs.contains(windowID) { return }
