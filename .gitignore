@@ -4,3 +4,4 @@ NiriMac.app/
 .claude/
 *.o
 *.d
+.worktrees/
