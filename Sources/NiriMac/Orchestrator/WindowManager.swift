@@ -630,19 +630,17 @@ final class WindowManager {
         lastComputedFrames = allFrames
 
         // フォーカスオーバーレイを更新（parkedWindowIDs を除いた可視フレームのみ渡す）
+        // applyLayout はメインスレッドで動くため直接呼び出す
         let visibleFrames = allFrames.filter { !parkedWindowIDs.contains($0.0) }
         let screenIdx = activeScreenIndex()
         let focusedID: WindowID? = screenIdx < screens.count
             ? screens[screenIdx].activeWorkspace.activeWindowID
             : nil
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.focusOverlayManager.update(
-                focusedID: focusedID,
-                allFrames: visibleFrames,
-                config: self.config
-            )
-        }
+        focusOverlayManager.update(
+            focusedID: focusedID,
+            allFrames: visibleFrames,
+            config: config
+        )
     }
 
     /// 画面外判定。ウィンドウが workingArea の完全外側にある場合のみ off-screen とする。

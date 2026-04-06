@@ -113,7 +113,7 @@ final class FocusOverlayManager {
 
     private func makeBasePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: .zero,
+            contentRect: CGRect(x: 0, y: 0, width: 1, height: 1),
             styleMask: .borderless,
             backing: .buffered,
             defer: false
@@ -123,7 +123,10 @@ final class FocusOverlayManager {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.contentView?.wantsLayer = true
+        // NSView を明示的に設定して layer を確実に作成する
+        let view = NSView()
+        view.wantsLayer = true
+        panel.contentView = view
         return panel
     }
 
