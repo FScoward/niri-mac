@@ -426,9 +426,22 @@ final class WindowManager {
                 self?.dropTargetOverlay.hide()
                 return
             }
+            // 解除モード: 2ウィンドウ以上のカラムでカーソルがカラム外
+            if let colFrame = self.columnFrame(for: draggedID),
+               self.columnWindowCount(for: draggedID) > 1,
+               !colFrame.contains(point) {
+                if let draggedFrame = self.lastComputedFrames.first(where: { $0.0 == draggedID })?.1 {
+                    self.dropTargetOverlay.show(frame: draggedFrame, zone: .expel)
+                }
+                return
+            }
+            // ターゲットウィンドウを探してゾーン別に表示
             for (windowID, frame) in self.lastComputedFrames {
                 guard frame.contains(point), windowID != draggedID else { continue }
-                self.dropTargetOverlay.show(frame: frame)
+                let zone: DropZone = self.isSameColumn(draggedID, windowID)
+                    ? .swap
+                    : self.dropZone(point: point, in: frame)
+                self.dropTargetOverlay.show(frame: frame, zone: zone)
                 return
             }
             self.dropTargetOverlay.hide()
@@ -964,42 +977,115 @@ final class WindowManager {
         }
     }
 
+    // MARK: - Drag Helpers
+
+    /// windowID を含むカラム全体の結合フレーム（Quartz座標）を返す
+    private func columnFrame(for windowID: WindowID) -> CGRect? {
+        for screen in screens {
+            let ws = screen.activeWorkspace
+            guard let colIdx = ws.columnIndex(for: windowID) else { continue }
+            let ids = ws.columns[colIdx].windows
+            let frames = ids.compactMap { id in lastComputedFrames.first(where: { $0.0 == id })?.1 }
+            guard !frames.isEmpty else { continue }
+            return frames.dropFirst().reduce(frames[0]) { $0.union($1) }
+        }
+        return nil
+    }
+
+    /// windowID を含むカラムのウィンドウ数を返す
+    private func columnWindowCount(for windowID: WindowID) -> Int {
+        for screen in screens {
+            let ws = screen.activeWorkspace
+            guard let colIdx = ws.columnIndex(for: windowID) else { continue }
+            return ws.columns[colIdx].windows.count
+        }
+        return 0
+    }
+
+    /// a と b が同一カラムにあるか判定する
+    private func isSameColumn(_ a: WindowID, _ b: WindowID) -> Bool {
+        for screen in screens {
+            let ws = screen.activeWorkspace
+            if let colA = ws.columnIndex(for: a), let colB = ws.columnIndex(for: b) {
+                return colA == colB
+            }
+        }
+        return false
+    }
+
+    /// point が frame（ターゲットウィンドウ、Quartz座標）の3ゾーンのどこにあるか判定する
+    private func dropZone(point: CGPoint, in frame: CGRect) -> DropZone {
+        let third = frame.height / 3
+        if point.y < frame.minY + third { return .stackAbove }
+        if point.y > frame.maxY - third { return .stackBelow }
+        return .swap
+    }
+
     // MARK: - Mouse Handlers
 
-    /// ドラッグ終了時のスワップ判定
+    /// ドラッグ終了時のスタック/スワップ/Expel 判定
     private func handleMouseUp(at point: CGPoint) {
         guard let draggedID = draggedWindowID else { return }
         draggedWindowID = nil
 
-        // ドロップ位置にあるウィンドウを lastComputedFrames から検索
-        var dropTargetID: WindowID? = nil
-        for (windowID, frame) in lastComputedFrames {
-            guard frame.contains(point), windowID != draggedID else { continue }
-            dropTargetID = windowID
-            break
-        }
-
-        guard let targetID = dropTargetID else {
-            // どのウィンドウにもドロップされなかった → レイアウトを元に戻す
-            niriLog("[drag] mouseUp: no target — restoring layout")
+        // 解除モード: 2ウィンドウ以上のカラムでカーソルがカラム外
+        if let colFrame = columnFrame(for: draggedID),
+           columnWindowCount(for: draggedID) > 1,
+           !colFrame.contains(point) {
+            let side: DragSide = point.x < colFrame.midX ? .left : .right
+            expelWindowByMouse(windowID: draggedID, side: side)
+            swapCooldownEnd = Date().addingTimeInterval(0.5)
             needsLayout = true
             return
         }
 
-        // 全スクリーン・全ワークスペースからスワップ実行
-        niriLog("[drag] swap: \(draggedID) ↔ \(targetID)")
-        for i in screens.indices {
-            for j in screens[i].workspaces.indices {
-                let hasDragged = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
-                let hasTarget  = screens[i].workspaces[j].columnIndex(for: targetID) != nil
-                if hasDragged && hasTarget {
-                    screens[i].workspaces[j].swapWindows(draggedID, targetID)
+        // ターゲットウィンドウを探してスタック/スワップ
+        for (windowID, frame) in lastComputedFrames {
+            guard frame.contains(point), windowID != draggedID else { continue }
+
+            if isSameColumn(draggedID, windowID) {
+                // 同一カラム → スワップ（既存動作）
+                niriLog("[drag] swap (same col): \(draggedID) ↔ \(windowID)")
+                for i in screens.indices {
+                    for j in screens[i].workspaces.indices {
+                        let has1 = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
+                        let has2 = screens[i].workspaces[j].columnIndex(for: windowID) != nil
+                        if has1 && has2 {
+                            screens[i].workspaces[j].swapWindows(draggedID, windowID)
+                            break
+                        }
+                    }
+                }
+            } else {
+                // 異なるカラム → ゾーンに応じてスタックまたはスワップ
+                switch dropZone(point: point, in: frame) {
+                case .stackAbove:
+                    consumeWindowByMouse(draggedID, target: windowID, position: .above)
+                case .stackBelow:
+                    consumeWindowByMouse(draggedID, target: windowID, position: .below)
+                case .swap:
+                    niriLog("[drag] swap: \(draggedID) ↔ \(windowID)")
+                    for i in screens.indices {
+                        for j in screens[i].workspaces.indices {
+                            let has1 = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
+                            let has2 = screens[i].workspaces[j].columnIndex(for: windowID) != nil
+                            if has1 && has2 {
+                                screens[i].workspaces[j].swapWindows(draggedID, windowID)
+                                break
+                            }
+                        }
+                    }
+                case .expel:
                     break
                 }
             }
+            swapCooldownEnd = Date().addingTimeInterval(0.5)
+            needsLayout = true
+            return
         }
-        // applyLayout によるウィンドウ移動通知が次の操作と混同されないようクールダウン
-        swapCooldownEnd = Date().addingTimeInterval(0.5)
+
+        // どのウィンドウにもドロップされなかった → レイアウトを元に戻す
+        niriLog("[drag] mouseUp: no target — restoring layout")
         needsLayout = true
     }
 
@@ -1186,6 +1272,47 @@ final class WindowManager {
 
         screens[screenIdx].activeWorkspace = ws
         needsLayout = true
+    }
+
+    private enum DragSide { case left, right }
+
+    /// マウスドラッグによる Expel: windowID を含むカラムから切り出して独立カラムにする
+    private func expelWindowByMouse(windowID: WindowID, side: DragSide) {
+        niriLog("[drag] expel: \(windowID) to \(side == .left ? "left" : "right")")
+        for i in screens.indices {
+            for j in screens[i].workspaces.indices {
+                guard let colIdx = screens[i].workspaces[j].columnIndex(for: windowID),
+                      screens[i].workspaces[j].columns[colIdx].windows.count > 1 else { continue }
+                var ws = screens[i].workspaces[j]
+                ws.columns[colIdx].removeWindow(windowID)
+                let screenWidth = screens[i].frame.width
+                let newColWidth = config.defaultColumnWidth(for: screenWidth)
+                let newColumn = Column(windows: [windowID], width: newColWidth)
+                let insertIdx = (side == .left) ? colIdx : colIdx + 1
+                ws.addColumn(newColumn, at: insertIdx)
+                screens[i].workspaces[j] = ws
+                return
+            }
+        }
+    }
+
+    /// マウスドラッグによる consume: draggedID を targetID のカラムに position で挿入する
+    private func consumeWindowByMouse(
+        _ draggedID: WindowID,
+        target targetID: WindowID,
+        position: Workspace.ColumnInsertPosition
+    ) {
+        niriLog("[drag] stack: \(draggedID) → \(position == .above ? "above" : "below") \(targetID)")
+        for i in screens.indices {
+            for j in screens[i].workspaces.indices {
+                let hasDragged = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
+                let hasTarget  = screens[i].workspaces[j].columnIndex(for: targetID) != nil
+                if hasDragged && hasTarget {
+                    screens[i].workspaces[j].consumeWindowIntoColumn(draggedID, target: targetID, position: position)
+                    return
+                }
+            }
+        }
     }
 
     private func expelWindowFromColumn(screenIdx: Int) {
