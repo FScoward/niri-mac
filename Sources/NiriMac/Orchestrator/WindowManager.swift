@@ -10,13 +10,16 @@ private let logFileHandle: FileHandle? = {
     }
     return try? FileHandle(forWritingTo: logFileURL)
 }()
+private let logQueue = DispatchQueue(label: "niri-mac.log", qos: .utility)
 
 private func niriLog(_ message: String) {
     let line = message + "\n"
     print(line, terminator: "")
-    if let data = line.data(using: .utf8) {
-        logFileHandle?.seekToEndOfFile()
-        logFileHandle?.write(data)
+    logQueue.async {
+        if let data = line.data(using: .utf8) {
+            logFileHandle?.seekToEndOfFile()
+            logFileHandle?.write(data)
+        }
     }
 }
 
@@ -463,7 +466,6 @@ final class WindowManager {
             }
 
             if hasAnimation || self.needsLayout {
-                niriLog("[tick] applyLayout: hasAnimation=\(hasAnimation) needsLayout=\(self.needsLayout)")
                 self.applyLayout(animated: false)
                 self.needsLayout = false
             }
