@@ -636,9 +636,13 @@ final class WindowManager {
         let focusedID: WindowID? = screenIdx < screens.count
             ? screens[screenIdx].activeWorkspace.activeWindowID
             : nil
+        let pinnedWindowIDs = Set(screens.flatMap { $0.activeWorkspace.columns }
+            .filter { $0.isPinned }
+            .flatMap { $0.windows })
         focusOverlayManager.update(
             focusedID: focusedID,
             allFrames: visibleFrames,
+            pinnedWindowIDs: pinnedWindowIDs,
             config: config
         )
     }
