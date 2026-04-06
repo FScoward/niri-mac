@@ -70,7 +70,7 @@ final class FocusOverlayManager {
         }
 
         panel.setFrame(cocoaFrame, display: true)
-        panel.orderFront(nil)
+        panel.orderFrontRegardless()
     }
 
     private func updateDim(
@@ -101,7 +101,7 @@ final class FocusOverlayManager {
 
             panel.backgroundColor = NSColor(white: 0, alpha: config.focusDimOpacity)
             panel.setFrame(cocoaFrame, display: true)
-            panel.orderFront(nil)
+            panel.orderFrontRegardless()
         }
 
         if let fid = focusedID {
@@ -118,11 +118,13 @@ final class FocusOverlayManager {
             backing: .buffered,
             defer: false
         )
-        panel.level = .floating
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 2)
         panel.ignoresMouseEvents = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         // NSView を明示的に設定して layer を確実に作成する
         let view = NSView()
         view.wantsLayer = true
