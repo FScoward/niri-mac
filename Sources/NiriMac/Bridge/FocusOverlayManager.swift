@@ -4,16 +4,18 @@ import CoreGraphics
 /// フォーカスウィンドウの枠線・ディム効果を NSPanel オーバーレイで表示する。
 ///
 /// - borderPanel: フォーカス中ウィンドウ周囲の枠線パネル（1枚）
-/// - dimPanels: 非フォーカスウィンドウごとの半透明オーバーレイ（WindowID → NSPanel）
+/// - dimPanel: 画面全体を覆う半透明パネル（1枚）。フォーカス中＋ピン中ウィンドウに穴を開けたマスクで制御。
 ///
-/// WindowManager.applyLayout() の末尾から update(focusedID:allFrames:config:) を呼ぶこと。
+/// WindowManager.applyLayout() の末尾から update(focusedID:allFrames:pinnedWindowIDs:config:) を呼ぶこと。
 /// parkedWindowIDs（画面外退避中）のウィンドウはオーバーレイ対象外とする。
 final class FocusOverlayManager {
 
     private var borderPanel: NSPanel?
-    private var borderTrackLayer: CAShapeLayer?  // 枠線ベース（薄いオレンジ）
-    private var borderSpotLayer: CAShapeLayer?   // 走る光
-    private var dimPanels: [WindowID: NSPanel] = [:]
+    private var borderTrackLayer: CAShapeLayer?
+    private var borderSpotLayer: CAShapeLayer?
+
+    private var dimPanel: NSPanel?
+    private var dimMaskLayer: CAShapeLayer?
 
     // MARK: - Public API
 
@@ -32,8 +34,9 @@ final class FocusOverlayManager {
         borderPanel = nil
         borderTrackLayer = nil
         borderSpotLayer = nil
-        dimPanels.values.forEach { $0.orderOut(nil) }
-        dimPanels.removeAll()
+        dimPanel?.orderOut(nil)
+        dimPanel = nil
+        dimMaskLayer = nil
     }
 
     // MARK: - Quartz → Cocoa 座標変換（static でテスト可能）
@@ -69,7 +72,6 @@ final class FocusOverlayManager {
         borderPanel = panel
         panel.setFrame(cocoaFrame, display: true)
 
-        // 枠線パスを新しい bounds に更新（アニメーションなし）
         if let contentView = panel.contentView {
             let bounds = contentView.bounds
             let inset = config.focusBorderWidth / 2
@@ -95,39 +97,38 @@ final class FocusOverlayManager {
         pinnedWindowIDs: Set<WindowID>,
         config: LayoutConfig
     ) {
-        let currentIDs = Set(allFrames.map { $0.0 })
-        let obsolete = dimPanels.keys.filter { !currentIDs.contains($0) }
-        obsolete.forEach {
-            dimPanels[$0]?.orderOut(nil)
-            dimPanels.removeValue(forKey: $0)
-        }
-
         guard config.focusDimEnabled else {
-            dimPanels.values.forEach { $0.orderOut(nil) }
+            dimPanel?.orderOut(nil)
             return
         }
 
-        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        guard let screen = NSScreen.screens.first else { return }
+        let screenHeight = screen.frame.height
 
-        for (wid, quartzFrame) in allFrames {
-            if wid == focusedID { continue }
-            if pinnedWindowIDs.contains(wid) {
-                dimPanels[wid]?.orderOut(nil)
-                continue
-            }
+        let panel = dimPanel ?? makeDimPanel(opacity: config.focusDimOpacity)
+        dimPanel = panel
+        panel.contentView?.layer?.backgroundColor = NSColor(white: 0, alpha: config.focusDimOpacity).cgColor
+        panel.setFrame(screen.frame, display: true)
 
-            let cocoaFrame = Self.quartzToCocoa(quartzFrame, screenHeight: screenHeight)
-            let panel = dimPanels[wid] ?? makeDimPanel(opacity: config.focusDimOpacity)
-            dimPanels[wid] = panel
+        // 全画面パス + フォーカス中・ピン中ウィンドウの穴（evenOdd）
+        let path = CGMutablePath()
+        path.addRect(CGRect(origin: .zero, size: screen.frame.size))
 
-            panel.backgroundColor = NSColor(white: 0, alpha: config.focusDimOpacity)
-            panel.setFrame(cocoaFrame, display: true)
-            panel.orderFrontRegardless()
+        if let fid = focusedID,
+           let quartzFrame = allFrames.first(where: { $0.0 == fid })?.1 {
+            path.addRect(Self.quartzToCocoa(quartzFrame, screenHeight: screenHeight))
         }
 
-        if let fid = focusedID {
-            dimPanels[fid]?.orderOut(nil)
+        for (wid, quartzFrame) in allFrames where pinnedWindowIDs.contains(wid) {
+            path.addRect(Self.quartzToCocoa(quartzFrame, screenHeight: screenHeight))
         }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dimMaskLayer?.path = path
+        CATransaction.commit()
+
+        panel.orderFrontRegardless()
     }
 
     // MARK: - NSPanel ファクトリ
@@ -158,7 +159,6 @@ final class FocusOverlayManager {
             return panel
         }
 
-        // ベース枠線: 薄いオレンジで常時表示
         let track = CAShapeLayer()
         track.fillColor = NSColor.clear.cgColor
         track.strokeColor = NSColor.systemOrange.withAlphaComponent(0.3).cgColor
@@ -167,20 +167,17 @@ final class FocusOverlayManager {
         rootLayer.addSublayer(track)
         borderTrackLayer = track
 
-        // 走る光: 短いダッシュが枠線を周回する
         let spot = CAShapeLayer()
         spot.fillColor = NSColor.clear.cgColor
         spot.strokeColor = NSColor.systemOrange.cgColor
         spot.lineWidth = 12.0
         spot.lineCap = .round
-        // 全体の 8% だけ表示し残りは透明にすることで「光の粒」を表現
         spot.lineDashPattern = [NSNumber(value: 0), NSNumber(value: 1)]
         spot.strokeStart = 0
         spot.strokeEnd = 0.08
         rootLayer.addSublayer(spot)
         borderSpotLayer = spot
 
-        // strokeStart/End を 0→1 に繰り返すことで枠線を一周させる
         let anim = CABasicAnimation(keyPath: "strokeStart")
         anim.fromValue = 0.0
         anim.toValue = 1.0
@@ -202,7 +199,15 @@ final class FocusOverlayManager {
 
     private func makeDimPanel(opacity: CGFloat) -> NSPanel {
         let panel = makeBasePanel()
-        panel.backgroundColor = NSColor(white: 0, alpha: opacity)
+
+        // マスクレイヤー: evenOdd で穴あき dim を実現
+        let mask = CAShapeLayer()
+        mask.fillColor = NSColor.white.cgColor
+        mask.fillRule = .evenOdd
+        panel.contentView?.layer?.mask = mask
+        panel.contentView?.layer?.backgroundColor = NSColor(white: 0, alpha: opacity).cgColor
+        dimMaskLayer = mask
+
         return panel
     }
 }
