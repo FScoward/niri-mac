@@ -9,6 +9,7 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pinnedTargetColumnIndex: Int?
     private var focusBorderMenuItem: NSMenuItem?
     private var focusDimMenuItem: NSMenuItem?
+    private var excludedAppsMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         printDiagnostics()
@@ -64,6 +65,12 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(pinItem)
         menu.addItem(NSMenuItem.separator())
 
+        let excludedAppsItem = NSMenuItem(title: "Excluded Apps", action: nil, keyEquivalent: "")
+        excludedAppsItem.submenu = NSMenu()
+        self.excludedAppsMenuItem = excludedAppsItem
+        menu.addItem(excludedAppsItem)
+        menu.addItem(NSMenuItem.separator())
+
         let borderItem = NSMenuItem(title: "Focus Border", action: #selector(toggleFocusBorder), keyEquivalent: "")
         borderItem.target = self
         self.focusBorderMenuItem = borderItem
@@ -87,6 +94,39 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pinMenuItem?.title = isPinned ? "Unpin Column" : "Pin Column"
         focusBorderMenuItem?.state = windowManager?.focusBorderEnabled == true ? .on : .off
         focusDimMenuItem?.state = windowManager?.focusDimEnabled == true ? .on : .off
+
+        // Excluded Apps サブメニューを動的生成
+        if let submenu = excludedAppsMenuItem?.submenu {
+            submenu.removeAllItems()
+
+            // 「現在のアプリを除外」
+            let excludeCurrentItem = NSMenuItem(
+                title: "Exclude Current App",
+                action: #selector(excludeCurrentApp),
+                keyEquivalent: ""
+            )
+            excludeCurrentItem.target = self
+            if windowManager?.focusedAppBundleID == nil {
+                excludeCurrentItem.isEnabled = false
+            }
+            submenu.addItem(excludeCurrentItem)
+
+            // 除外済みアプリがあればセパレータ＋リスト
+            if let apps = windowManager?.excludedApps, !apps.isEmpty {
+                submenu.addItem(NSMenuItem.separator())
+                for app in apps {
+                    let item = NSMenuItem(
+                        title: app.name,
+                        action: #selector(includeApp(_:)),
+                        keyEquivalent: ""
+                    )
+                    item.target = self
+                    item.representedObject = app.bundleID
+                    item.state = .on
+                    submenu.addItem(item)
+                }
+            }
+        }
     }
 
     @objc private func togglePin() {
@@ -99,6 +139,16 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleFocusDim() {
         windowManager?.toggleFocusDim()
+    }
+
+    @objc private func excludeCurrentApp() {
+        guard let bundleID = windowManager?.focusedAppBundleID else { return }
+        windowManager?.excludeApp(bundleID: bundleID)
+    }
+
+    @objc private func includeApp(_ sender: NSMenuItem) {
+        guard let bundleID = sender.representedObject as? String else { return }
+        windowManager?.includeApp(bundleID: bundleID)
     }
 
     @objc private func quit() {
