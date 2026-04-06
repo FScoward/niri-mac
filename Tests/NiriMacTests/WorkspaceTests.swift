@@ -113,4 +113,89 @@ struct WorkspaceTests {
             Issue.record("Expected static(0) for empty workspace")
         }
     }
+
+    // MARK: - consumeWindowIntoColumn
+
+    @Test func consumeWindowIntoColumn_above_insertsBefore() {
+        // Win 1 (col 0) を Win 2 (col 1) の上にスタック
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [
+            Column(windows: [1], width: 400),
+            Column(windows: [2, 3], width: 400),
+        ]
+        ws.activeColumnIndex = 0
+
+        ws.consumeWindowIntoColumn(1, target: 2, position: .above)
+
+        // col 0 が消えて col 0（元col1）が [1, 2, 3] になる
+        #expect(ws.columns.count == 1)
+        #expect(ws.columns[0].windows == [1, 2, 3])
+    }
+
+    @Test func consumeWindowIntoColumn_below_insertsAfter() {
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [
+            Column(windows: [1], width: 400),
+            Column(windows: [2, 3], width: 400),
+        ]
+
+        ws.consumeWindowIntoColumn(1, target: 2, position: .below)
+
+        // [2, 1, 3] になる
+        #expect(ws.columns.count == 1)
+        #expect(ws.columns[0].windows == [2, 1, 3])
+    }
+
+    @Test func consumeWindowIntoColumn_removesEmptySourceColumn() {
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [
+            Column(windows: [1], width: 400),   // col 0: 1個だけ
+            Column(windows: [2], width: 400),   // col 1
+        ]
+
+        ws.consumeWindowIntoColumn(1, target: 2, position: .above)
+
+        #expect(ws.columns.count == 1)
+        #expect(ws.columns[0].windows.contains(1))
+        #expect(ws.columns[0].windows.contains(2))
+    }
+
+    @Test func consumeWindowIntoColumn_sourceHasMultipleWindows_columnRemains() {
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [
+            Column(windows: [1, 2], width: 400),  // col 0: 2個
+            Column(windows: [3], width: 400),      // col 1
+        ]
+
+        ws.consumeWindowIntoColumn(1, target: 3, position: .below)
+
+        // col 0 は [2] のまま残る
+        #expect(ws.columns.count == 2)
+        #expect(ws.columns[0].windows == [2])
+        #expect(ws.columns[1].windows == [3, 1])
+    }
+
+    @Test func consumeWindowIntoColumn_sameColumn_isNoop() {
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [Column(windows: [1, 2], width: 400)]
+
+        ws.consumeWindowIntoColumn(1, target: 2, position: .above)
+
+        // 変化なし
+        #expect(ws.columns.count == 1)
+        #expect(ws.columns[0].windows == [1, 2])
+    }
+
+    @Test func consumeWindowIntoColumn_setsFocusToDraggedWindow() {
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [
+            Column(windows: [1], width: 400),
+            Column(windows: [2], width: 400),
+        ]
+
+        ws.consumeWindowIntoColumn(1, target: 2, position: .below)
+
+        // 挿入後、activeWindowIndex が draggedID（Win 1）を指す
+        #expect(ws.columns[0].activeWindowID == 1)
+    }
 }

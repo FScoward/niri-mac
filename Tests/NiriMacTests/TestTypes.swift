@@ -70,12 +70,14 @@ struct Column {
     var activeWindowIndex: Int
     var width: CGFloat
     var heightDistribution: HeightDistribution
+    var isPinned: Bool
 
     init(windows: [WindowID], width: CGFloat) {
         self.windows = windows
         self.activeWindowIndex = 0
         self.width = width
         self.heightDistribution = .equal
+        self.isPinned = false
     }
 
     var activeWindowID: WindowID? {
@@ -84,6 +86,60 @@ struct Column {
     }
 
     var isEmpty: Bool { windows.isEmpty }
+
+    mutating func moveActiveWindowUp() {
+        guard activeWindowIndex > 0 else { return }
+        let i = activeWindowIndex
+        windows.swapAt(i, i - 1)
+        if case .proportional(var ratios) = heightDistribution, ratios.count == windows.count {
+            ratios.swapAt(i, i - 1)
+            heightDistribution = .proportional(ratios)
+        }
+        activeWindowIndex = i - 1
+    }
+
+    mutating func moveActiveWindowDown() {
+        guard activeWindowIndex < windows.count - 1 else { return }
+        let i = activeWindowIndex
+        windows.swapAt(i, i + 1)
+        if case .proportional(var ratios) = heightDistribution, ratios.count == windows.count {
+            ratios.swapAt(i, i + 1)
+            heightDistribution = .proportional(ratios)
+        }
+        activeWindowIndex = i + 1
+    }
+
+    mutating func resizeActiveWindowHeight(delta: CGFloat) {
+        let n = windows.count
+        guard n >= 2 else { return }
+
+        var ratios: [CGFloat]
+        if case .proportional(let r) = heightDistribution, r.count == n {
+            let sum = r.reduce(0, +)
+            ratios = sum > 0 ? r.map { $0 / sum } : Array(repeating: 1.0 / CGFloat(n), count: n)
+        } else {
+            ratios = Array(repeating: 1.0 / CGFloat(n), count: n)
+        }
+
+        let i = activeWindowIndex
+        let minRatio: CGFloat = 0.05
+        let maxRatio: CGFloat = 1.0 - CGFloat(n - 1) * minRatio
+        ratios[i] = max(minRatio, min(maxRatio, ratios[i] + delta))
+
+        let remaining = 1.0 - ratios[i]
+        let otherSum = ratios.enumerated().filter { $0.offset != i }.map { $0.element }.reduce(0, +)
+        for j in 0..<n where j != i {
+            if otherSum > 0 {
+                ratios[j] = max(minRatio, remaining * ratios[j] / otherSum)
+            } else {
+                ratios[j] = remaining / CGFloat(n - 1)
+            }
+        }
+
+        let total = ratios.reduce(0, +)
+        if total > 0 { ratios = ratios.map { $0 / total } }
+        heightDistribution = .proportional(ratios)
+    }
 }
 
 // MARK: - Workspace
@@ -157,6 +213,88 @@ struct Workspace {
         } else {
             viewOffset = .static(offset: clampedOffset)
         }
+    }
+
+    // MARK: - Column Operations
+
+    mutating func addColumn(_ column: Column, at index: Int? = nil) {
+        let insertIndex = index ?? (activeColumnIndex + 1)
+        let safeIndex = min(max(insertIndex, 0), columns.count)
+        columns.insert(column, at: safeIndex)
+        activeColumnIndex = safeIndex
+    }
+
+    mutating func removeColumn(at index: Int) {
+        guard index < columns.count else { return }
+        let wasActive = index == activeColumnIndex
+        columns.remove(at: index)
+        guard !columns.isEmpty else {
+            activeColumnIndex = 0
+            return
+        }
+        if wasActive {
+            activeColumnIndex = min(index, columns.count - 1)
+        } else if index < activeColumnIndex {
+            activeColumnIndex -= 1
+        }
+    }
+
+    mutating func focusColumn(at index: Int) {
+        guard index >= 0, index < columns.count else { return }
+        activeColumnIndex = index
+    }
+
+    func columnIndex(for windowID: WindowID) -> Int? {
+        columns.firstIndex { $0.windows.contains(windowID) }
+    }
+
+    // MARK: - Column Stack Operations
+
+    enum ColumnInsertPosition {
+        case above
+        case below
+    }
+
+    mutating func consumeWindowIntoColumn(
+        _ draggedID: WindowID,
+        target targetID: WindowID,
+        position: ColumnInsertPosition
+    ) {
+        guard draggedID != targetID else { return }
+        guard let draggedColIdx = columnIndex(for: draggedID),
+              let targetColIdx  = columnIndex(for: targetID),
+              draggedColIdx != targetColIdx
+        else { return }
+
+        columns[draggedColIdx].windows.removeAll { $0 == draggedID }
+
+        var adjustedTargetIdx = targetColIdx
+        if columns[draggedColIdx].isEmpty {
+            removeColumn(at: draggedColIdx)
+            if draggedColIdx < targetColIdx {
+                adjustedTargetIdx -= 1
+            }
+        }
+
+        guard let targetWinIdx = columns[adjustedTargetIdx].windows.firstIndex(of: targetID) else { return }
+
+        let insertIdx: Int
+        switch position {
+        case .above: insertIdx = targetWinIdx
+        case .below: insertIdx = targetWinIdx + 1
+        }
+        let safeIdx = min(insertIdx, columns[adjustedTargetIdx].windows.count)
+        columns[adjustedTargetIdx].windows.insert(draggedID, at: safeIdx)
+
+        focusColumn(at: adjustedTargetIdx)
+        if let newWinIdx = columns[adjustedTargetIdx].windows.firstIndex(of: draggedID) {
+            columns[adjustedTargetIdx].activeWindowIndex = newWinIdx
+        }
+    }
+
+    var activeWindowID: WindowID? {
+        guard !columns.isEmpty, activeColumnIndex < columns.count else { return nil }
+        return columns[activeColumnIndex].activeWindowID
     }
 }
 

@@ -212,6 +212,58 @@ struct Workspace {
         columns[colB].width = widthA
     }
 
+    // MARK: - Column Stack Operations
+
+    /// consumeWindowIntoColumn で使うスタック挿入位置
+    enum ColumnInsertPosition {
+        case above  // target の直上に挿入
+        case below  // target の直下に挿入
+    }
+
+    /// draggedID を targetID のカラムに position で挿入する。
+    /// ソースカラムが空になれば削除する。同一カラム内の場合は何もしない。
+    mutating func consumeWindowIntoColumn(
+        _ draggedID: WindowID,
+        target targetID: WindowID,
+        position: ColumnInsertPosition
+    ) {
+        guard draggedID != targetID else { return }
+        guard let draggedColIdx = columnIndex(for: draggedID),
+              let targetColIdx  = columnIndex(for: targetID),
+              draggedColIdx != targetColIdx
+        else { return }
+
+        // 1. draggedID をソースカラムから取り出す
+        columns[draggedColIdx].removeWindow(draggedID)
+
+        // 2. ソースカラムが空になったら削除し、targetColIdx を補正
+        var adjustedTargetIdx = targetColIdx
+        if columns[draggedColIdx].isEmpty {
+            removeColumn(at: draggedColIdx)
+            if draggedColIdx < targetColIdx {
+                adjustedTargetIdx -= 1
+            }
+        }
+
+        // 3. targetID のカラム内の現在インデックスを取得
+        guard let targetWinIdx = columns[adjustedTargetIdx].windows.firstIndex(of: targetID) else { return }
+
+        // 4. position に応じて挿入
+        let insertIdx: Int
+        switch position {
+        case .above: insertIdx = targetWinIdx
+        case .below: insertIdx = targetWinIdx + 1
+        }
+        let safeIdx = min(insertIdx, columns[adjustedTargetIdx].windows.count)
+        columns[adjustedTargetIdx].windows.insert(draggedID, at: safeIdx)
+
+        // 5. フォーカスをターゲットカラム・挿入したウィンドウに移す
+        focusColumn(at: adjustedTargetIdx)
+        if let newWinIdx = columns[adjustedTargetIdx].windows.firstIndex(of: draggedID) {
+            columns[adjustedTargetIdx].activeWindowIndex = newWinIdx
+        }
+    }
+
     /// ウィンドウIDのカラムインデックスとウィンドウインデックスを返す
     private func findWindowPosition(_ id: WindowID) -> (colIdx: Int, winIdx: Int)? {
         for (colIdx, col) in columns.enumerated() {
