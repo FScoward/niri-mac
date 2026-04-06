@@ -23,15 +23,11 @@ enum ExclusionStore {
         let dir = url.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        } catch {
-            print("[exclusion] ⚠️ ディレクトリの作成に失敗しました: \(error)")
-        }
-        let payload = Payload(excludedBundleIDs: ids.sorted())
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        do {
+            let payload = Payload(excludedBundleIDs: ids.sorted())
+            let data = try JSONEncoder().encode(payload)
             try data.write(to: url, options: .atomic)
         } catch {
-            print("[exclusion] ⚠️ 設定ファイルの書き込みに失敗しました: \(error)")
+            print("[exclusion] ⚠️ 設定ファイルの保存に失敗しました: \(error)")
         }
     }
 

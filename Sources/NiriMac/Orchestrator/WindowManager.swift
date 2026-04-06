@@ -602,6 +602,7 @@ final class WindowManager {
     /// 現在フォーカス中のアプリの bundleID（取得できない場合は nil）
     var focusedAppBundleID: String? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
         return app.bundleIdentifier
     }
 
@@ -633,6 +634,7 @@ final class WindowManager {
 
     /// アプリを除外リストから削除する（ウィンドウ復帰は次回起動時）
     func includeApp(bundleID: String) {
+        guard config.excludedBundleIDs.contains(bundleID) else { return }
         config.excludedBundleIDs.remove(bundleID)
         ExclusionStore.save(config.excludedBundleIDs)
         niriLog("[exclusion] included '\(bundleID)'")
