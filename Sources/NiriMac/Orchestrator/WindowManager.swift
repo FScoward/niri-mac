@@ -368,6 +368,17 @@ final class WindowManager {
                 self.syncWindowsForCurrentSpace()
             }
         }
+        observer.onApplicationLaunched = { [weak self] pid in
+            // kAXWindowCreatedNotification を拾えなかった場合のフォールバック:
+            // アプリ起動から 0.6秒後にそのPIDのウィンドウをスキャンして未登録分をタイリングする
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self else { return }
+                let windows = self.axBridge.allWindows().filter { $0.ownerPID == pid }
+                for window in windows {
+                    self.handleWindowCreated(window)
+                }
+            }
+        }
         observer.startObserving()
     }
 
