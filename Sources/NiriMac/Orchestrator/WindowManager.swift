@@ -1013,11 +1013,12 @@ final class WindowManager {
         return false
     }
 
-    /// point が frame（ターゲットウィンドウ、Quartz座標）の3ゾーンのどこにあるか判定する
+    /// point が frame（ターゲットウィンドウ、Quartz座標）の3ゾーンのどこにあるか判定する。
+    /// Quartz座標（Y下向き）: minY=視覚上端, maxY=視覚下端
     private func dropZone(point: CGPoint, in frame: CGRect) -> DropZone {
         let third = frame.height / 3
-        if point.y < frame.minY + third { return .stackAbove }
-        if point.y > frame.maxY - third { return .stackBelow }
+        if point.y < frame.minY + third { return .stackAbove }  // 上 1/3
+        if point.y > frame.maxY - third { return .stackBelow }  // 下 1/3
         return .swap
     }
 
@@ -1076,6 +1077,7 @@ final class WindowManager {
                         }
                     }
                 case .expel:
+                    // dropZone() は .expel を返さない（解除は上のカラム外判定で処理済み）
                     break
                 }
             }
