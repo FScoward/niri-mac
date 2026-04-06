@@ -21,10 +21,18 @@ enum ExclusionStore {
     /// ディレクトリが存在しない場合は自動作成する。
     static func save(_ ids: Set<String>, to url: URL = defaultURL) {
         let dir = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            print("[exclusion] ⚠️ ディレクトリの作成に失敗しました: \(error)")
+        }
         let payload = Payload(excludedBundleIDs: ids.sorted())
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        try? data.write(to: url, options: .atomic)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            print("[exclusion] ⚠️ 設定ファイルの書き込みに失敗しました: \(error)")
+        }
     }
 
     static let defaultURL: URL = {
