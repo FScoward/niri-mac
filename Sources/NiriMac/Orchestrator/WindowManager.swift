@@ -373,6 +373,10 @@ final class WindowManager {
             // アプリ起動から 0.6秒後にそのPIDのウィンドウをスキャンして未登録分をタイリングする
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                 guard let self else { return }
+                // アプリが 0.6 秒以内に終了した場合はスキップ（無効な AX 要素を防ぐ）
+                let isAlive = NSWorkspace.shared.runningApplications
+                    .contains { $0.processIdentifier == pid }
+                guard isAlive else { return }
                 let windows = self.axBridge.allWindows().filter { $0.ownerPID == pid }
                 for window in windows {
                     self.handleWindowCreated(window)
