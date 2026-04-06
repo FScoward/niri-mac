@@ -1,8 +1,16 @@
 import AppKit
 import CoreGraphics
 
-/// ドラッグ中のドロップターゲットウィンドウに破線の青枠を重ねて表示する NSPanel オーバーレイ。
-/// WindowManager から show(frame:) / hide() を呼ぶことでリアルタイム更新される。
+/// ドロップゾーンの種類。色と動作を決定する。
+enum DropZone {
+    case stackAbove   // 青破線: ターゲットの上にスタック
+    case swap         // 黄破線: スワップ（現状維持）
+    case stackBelow   // 青破線: ターゲットの下にスタック
+    case expel        // 赤破線: 解除モード
+}
+
+/// ドラッグ中のドロップターゲットウィンドウに破線の色枠を重ねて表示する NSPanel オーバーレイ。
+/// WindowManager から show(frame:zone:) / hide() を呼ぶことでリアルタイム更新される。
 final class DropTargetOverlayManager {
 
     private var panel: NSPanel?
@@ -10,8 +18,8 @@ final class DropTargetOverlayManager {
 
     // MARK: - Public API
 
-    /// 指定フレーム（Quartz座標系）に破線枠を表示する
-    func show(frame: CGRect) {
+    /// 指定フレーム（Quartz座標系）にゾーン対応の破線枠を表示する
+    func show(frame: CGRect, zone: DropZone = .swap) {
         let screenHeight = NSScreen.screens.first?.frame.height ?? 0
         let cocoaFrame = quartzToCocoa(frame, screenHeight: screenHeight)
 
@@ -19,23 +27,48 @@ final class DropTargetOverlayManager {
         panel = p
         p.setFrame(cocoaFrame, display: true)
 
+        let (strokeColor, bgColor) = zoneColors(zone)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        borderLayer?.strokeColor = strokeColor
         if let contentView = p.contentView {
+            contentView.layer?.backgroundColor = bgColor
             let bounds = contentView.bounds
             let path = CGPath(
                 roundedRect: bounds.insetBy(dx: 2, dy: 2),
                 cornerWidth: 6, cornerHeight: 6, transform: nil
             )
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
             borderLayer?.path = path
-            CATransaction.commit()
         }
+        CATransaction.commit()
         p.orderFrontRegardless()
     }
 
     /// オーバーレイを非表示にする
     func hide() {
         panel?.orderOut(nil)
+    }
+
+    // MARK: - ゾーン別スタイル
+
+    private func zoneColors(_ zone: DropZone) -> (CGColor, CGColor) {
+        switch zone {
+        case .stackAbove, .stackBelow:
+            return (
+                NSColor(red: 0.42, green: 0.48, blue: 1.0, alpha: 1.0).cgColor,
+                NSColor(red: 0.42, green: 0.48, blue: 1.0, alpha: 0.08).cgColor
+            )
+        case .swap:
+            return (
+                NSColor(red: 1.0, green: 0.78, blue: 0.0, alpha: 1.0).cgColor,
+                NSColor(red: 1.0, green: 0.78, blue: 0.0, alpha: 0.05).cgColor
+            )
+        case .expel:
+            return (
+                NSColor(red: 1.0, green: 0.42, blue: 0.42, alpha: 1.0).cgColor,
+                NSColor(red: 1.0, green: 0.42, blue: 0.42, alpha: 0.08).cgColor
+            )
+        }
     }
 
     // MARK: - Quartz → Cocoa 座標変換
@@ -68,11 +101,9 @@ final class DropTargetOverlayManager {
 
         let view = NSView()
         view.wantsLayer = true
-        // 薄い青背景
         view.layer?.backgroundColor = NSColor(red: 0.42, green: 0.48, blue: 1.0, alpha: 0.08).cgColor
         p.contentView = view
 
-        // 破線ボーダー
         let border = CAShapeLayer()
         border.fillColor = NSColor.clear.cgColor
         border.strokeColor = NSColor(red: 0.42, green: 0.48, blue: 1.0, alpha: 1.0).cgColor
