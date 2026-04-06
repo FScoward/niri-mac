@@ -27,6 +27,13 @@ final class MouseEventManager {
     /// スクロール時: 水平デルタ（正=右方向）、垂直デルタ（正=下方向）、isContinuous、修飾キー
     var onScroll: ((CGFloat, CGFloat, Bool, NSEvent.ModifierFlags) -> Void)?
 
+    /// ドラッグ中のカーソル位置（Quartz座標系）。~60fps でスロットリングされる
+    var onMouseDragged: ((CGPoint) -> Void)?
+
+    /// スロットリング: 前回 onMouseDragged を呼んだ時刻
+    private var lastDragDispatch: CFAbsoluteTime = 0
+    private let dragDispatchInterval: CFAbsoluteTime = 1.0 / 60.0  // ~16ms
+
     /// Cmd+Tab 等でアプリが切り替わった時
     var onAppActivated: (() -> Void)?
 
@@ -61,6 +68,7 @@ final class MouseEventManager {
         let mask = CGEventMask(
             (1 << CGEventType.leftMouseDown.rawValue) |
             (1 << CGEventType.leftMouseUp.rawValue) |
+            (1 << CGEventType.leftMouseDragged.rawValue) |
             (1 << CGEventType.scrollWheel.rawValue)
         )
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
@@ -104,6 +112,15 @@ final class MouseEventManager {
             let loc = event.location
             DispatchQueue.main.async { [weak self] in
                 self?.onMouseUp?(loc)
+            }
+
+        case .leftMouseDragged:
+            let now = CFAbsoluteTimeGetCurrent()
+            guard now - lastDragDispatch >= dragDispatchInterval else { return }
+            lastDragDispatch = now
+            let loc = event.location
+            DispatchQueue.main.async { [weak self] in
+                self?.onMouseDragged?(loc)
             }
 
         case .scrollWheel:
