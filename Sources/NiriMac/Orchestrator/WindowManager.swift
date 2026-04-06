@@ -368,6 +368,23 @@ final class WindowManager {
                 self.syncWindowsForCurrentSpace()
             }
         }
+        observer.onApplicationLaunched = { [weak self] pid in
+            // kAXWindowCreatedNotification を拾えなかった場合のフォールバック:
+            // JVM/Electron 系など起動が遅いアプリに対応するため複数回リトライする
+            for delay in [0.6, 2.0, 5.0, 10.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self else { return }
+                    // アプリが終了済みの場合はスキップ（無効な AX 要素を防ぐ）
+                    let isAlive = NSWorkspace.shared.runningApplications
+                        .contains { $0.processIdentifier == pid }
+                    guard isAlive else { return }
+                    let windows = self.axBridge.allWindows().filter { $0.ownerPID == pid }
+                    for window in windows {
+                        self.handleWindowCreated(window)
+                    }
+                }
+            }
+        }
         observer.startObserving()
     }
 
