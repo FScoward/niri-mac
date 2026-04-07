@@ -38,9 +38,9 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>CFBundleExecutable</key>
     <string>NiriMac</string>
     <key>CFBundleVersion</key>
-    <string>0.1.2</string>
+    <string>0.1.3</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.2</string>
+    <string>0.1.3</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSUIElement</key>
