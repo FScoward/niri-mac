@@ -70,6 +70,16 @@ final class WindowManager {
     /// ドラッグ判定の移動距離閾値（px）
     private let dragThreshold: CGFloat = 20
 
+    /// ドラッグ方向ロック（確定後は mouseUp まで変わらない）
+    private var dragDirectionLock: DragDirection? = nil
+    private enum DragDirection { case horizontal, vertical }
+
+    /// ゴーストカラムの挿入予定インデックス（横ドラッグ確定後に更新）
+    private var ghostInsertIndex: Int? = nil
+
+    /// MouseDown 時のカーソル座標（方向判定用）
+    private var mouseDownPoint: CGPoint? = nil
+
     /// スワップ直後のクールダウン終了時刻（applyLayout 由来の windowMoved 誤検知を防ぐ）
     private var swapCooldownEnd: Date = .distantPast
 
@@ -400,6 +410,9 @@ final class WindowManager {
         mouse.onMouseDown = { [weak self] point in
             guard let self else { return }
             self.isMouseDown = true
+            self.dragDirectionLock = nil
+            self.ghostInsertIndex = nil
+            self.mouseDownPoint = point
             for (windowID, frame) in self.lastComputedFrames {
                 if frame.contains(point) {
                     self.mouseDownWindowID = windowID
