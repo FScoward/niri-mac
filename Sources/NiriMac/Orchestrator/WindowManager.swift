@@ -434,6 +434,8 @@ final class WindowManager {
             self.mouseDownFrame = nil
             self.needsLayout = true  // リサイズ・スワップ確定時にレイアウトを適用
             self.handleMouseUp(at: point)
+            self.dragDirectionLock = nil
+            self.mouseDownPoint = nil
         }
         mouse.onMouseDragged = { [weak self] point in
             guard let self, let draggedID = self.draggedWindowID else {
@@ -457,19 +459,22 @@ final class WindowManager {
             switch self.dragDirectionLock {
             case .horizontal:
                 // ゴーストカラムを最近傍ギャップにスナップ
+                guard !self.screens.isEmpty else { break }
                 let screenIdx = self.activeScreenIndex()
                 let insertIdx = LayoutEngine.nearestGapIndex(
                     cursorX: point.x,
                     workspace: self.screens[screenIdx].activeWorkspace,
                     config: self.config
                 )
-                self.ghostInsertIndex = insertIdx
                 if let ghostFrame = self.ghostColumnFrame(
                     insertIndex: insertIdx,
                     draggedWindowID: draggedID,
                     screenIdx: screenIdx
                 ) {
+                    self.ghostInsertIndex = insertIdx
                     self.dropTargetOverlay.showGhost(frame: ghostFrame)
+                } else {
+                    self.dropTargetOverlay.hide()
                 }
 
             case .vertical:
