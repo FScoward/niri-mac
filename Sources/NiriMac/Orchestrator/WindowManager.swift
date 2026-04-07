@@ -436,30 +436,58 @@ final class WindowManager {
             self.handleMouseUp(at: point)
         }
         mouse.onMouseDragged = { [weak self] point in
-            niriLog("[drag-dbg] onMouseDragged: draggedID=\(String(describing: self?.draggedWindowID)) isMouseDown=\(String(describing: self?.isMouseDown)) downWin=\(String(describing: self?.mouseDownWindowID))")
             guard let self, let draggedID = self.draggedWindowID else {
                 self?.dropTargetOverlay.hide()
                 return
             }
-            // 解除モード: 2ウィンドウ以上のカラムでカーソルがカラム外
-            if let colFrame = self.columnFrame(for: draggedID),
-               self.columnWindowCount(for: draggedID) > 1,
-               !colFrame.contains(point) {
-                if let draggedFrame = self.lastComputedFrames.first(where: { $0.0 == draggedID })?.1 {
-                    self.dropTargetOverlay.show(frame: draggedFrame, zone: .expel)
+
+            // 方向未確定なら Δx/Δy で判定（閾値: 1.5倍以上の差）
+            if self.dragDirectionLock == nil, let downPoint = self.mouseDownPoint {
+                let dx = abs(point.x - downPoint.x)
+                let dy = abs(point.y - downPoint.y)
+                if dx > dy * 1.5 {
+                    self.dragDirectionLock = .horizontal
+                    niriLog("[drag] direction locked: horizontal")
+                } else if dy > dx * 1.5 {
+                    self.dragDirectionLock = .vertical
+                    niriLog("[drag] direction locked: vertical")
                 }
-                return
             }
-            // ターゲットウィンドウを探してゾーン別に表示
-            for (windowID, frame) in self.lastComputedFrames {
-                guard frame.contains(point), windowID != draggedID else { continue }
-                let zone: DropZone = self.isSameColumn(draggedID, windowID)
-                    ? .swap
-                    : self.dropZone(point: point, in: frame)
-                self.dropTargetOverlay.show(frame: frame, zone: zone)
-                return
+
+            switch self.dragDirectionLock {
+            case .horizontal:
+                // ゴーストカラムを最近傍ギャップにスナップ
+                let screenIdx = self.activeScreenIndex()
+                let insertIdx = LayoutEngine.nearestGapIndex(
+                    cursorX: point.x,
+                    workspace: self.screens[screenIdx].activeWorkspace,
+                    config: self.config
+                )
+                self.ghostInsertIndex = insertIdx
+                if let ghostFrame = self.ghostColumnFrame(
+                    insertIndex: insertIdx,
+                    draggedWindowID: draggedID,
+                    screenIdx: screenIdx
+                ) {
+                    self.dropTargetOverlay.showGhost(frame: ghostFrame)
+                }
+
+            case .vertical:
+                // 既存のスタックゾーン判定
+                for (windowID, frame) in self.lastComputedFrames {
+                    guard frame.contains(point), windowID != draggedID else { continue }
+                    let zone: DropZone = self.isSameColumn(draggedID, windowID)
+                        ? .swap
+                        : self.dropZone(point: point, in: frame)
+                    self.dropTargetOverlay.show(frame: frame, zone: zone)
+                    return
+                }
+                self.dropTargetOverlay.hide()
+
+            case nil:
+                // 方向未確定: オーバーレイなし
+                self.dropTargetOverlay.hide()
             }
-            self.dropTargetOverlay.hide()
         }
         mouse.onAppActivated = { [weak self] in
             guard let self else { return }
@@ -1048,6 +1076,35 @@ final class WindowManager {
             }
         }
         return false
+    }
+
+    /// 挿入インデックスに対応するゴーストカラムの表示フレーム（Quartz座標）を返す
+    private func ghostColumnFrame(insertIndex: Int, draggedWindowID: WindowID, screenIdx: Int) -> CGRect? {
+        guard screenIdx < screens.count else { return nil }
+        let ws = screens[screenIdx].activeWorkspace
+        let gap = config.gapWidth
+        guard let sourceColIdx = ws.columnIndex(for: draggedWindowID) else { return nil }
+        let ghostWidth = ws.columns[sourceColIdx].width
+        let xs = ws.columnXPositions(gap: gap)
+        let offset = ws.viewOffset.current
+        let workingMinX = ws.workingArea.minX
+
+        let ghostX: CGFloat
+        if insertIndex == 0 {
+            ghostX = workingMinX + gap
+        } else {
+            let prevColIdx = insertIndex - 1
+            guard prevColIdx < xs.count else { return nil }
+            let prevColScreenX = workingMinX + gap + xs[prevColIdx] + offset
+            ghostX = prevColScreenX + ws.columns[prevColIdx].width + gap
+        }
+
+        return CGRect(
+            x: ghostX,
+            y: ws.workingArea.minY + gap,
+            width: ghostWidth,
+            height: ws.workingArea.height - gap * 2
+        )
     }
 
     /// point が frame（ターゲットウィンドウ、Quartz座標）の3ゾーンのどこにあるか判定する。
