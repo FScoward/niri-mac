@@ -6,6 +6,8 @@ enum DropZone {
     case stackAbove   // ターゲット上部にスタック
     case swap         // スワップ（差し込む）
     case stackBelow   // ターゲット下部にスタック
+    case insertLeft   // ターゲット左に新カラムとして挿入
+    case insertRight  // ターゲット右に新カラムとして挿入
 }
 
 /// ドラッグ中のドロップターゲットウィンドウに 3 分割ゾーン可視化オーバーレイを表示する NSPanel。
@@ -37,6 +39,8 @@ final class DropTargetOverlayManager {
     private static let colorStackBlueFill = NSColor(red: 107/255, green: 123/255, blue: 1.0, alpha: 0.30).cgColor
     private static let colorSwapYellow = NSColor(red: 1.0, green: 200/255, blue: 0.0, alpha: 1.0).cgColor
     private static let colorSwapYellowFill = NSColor(red: 1.0, green: 200/255, blue: 0.0, alpha: 0.28).cgColor
+    private static let colorInsertGreen = NSColor(red: 0.2, green: 0.85, blue: 0.45, alpha: 1.0).cgColor
+    private static let colorInsertGreenFill = NSColor(red: 0.2, green: 0.85, blue: 0.45, alpha: 0.25).cgColor
     private static let colorDimFill = NSColor(white: 1.0, alpha: 0.04).cgColor
     private static let colorDivider = NSColor(white: 1.0, alpha: 0.18).cgColor
 
@@ -91,44 +95,76 @@ final class DropTargetOverlayManager {
         let (activeStroke, activeFill) = zoneHighlightColors(zone)
         let dimFill = Self.colorDimFill
 
-        switch zone {
-        case .stackAbove:
-            topZoneLayer?.backgroundColor = activeFill
-            midZoneLayer?.backgroundColor = dimFill
-            botZoneLayer?.backgroundColor = dimFill
-        case .swap:
-            topZoneLayer?.backgroundColor = dimFill
-            midZoneLayer?.backgroundColor = activeFill
-            botZoneLayer?.backgroundColor = dimFill
-        case .stackBelow:
-            topZoneLayer?.backgroundColor = dimFill
-            midZoneLayer?.backgroundColor = dimFill
-            botZoneLayer?.backgroundColor = activeFill
-        }
-
-        // ラベル配置（各ゾーン中央）
+        let isInsert = zone == .insertLeft || zone == .insertRight
         let labelH: CGFloat = 22
         let labelW = w - 32
-        topLabel?.frame = CGRect(x: 16, y: topFrame.midY - labelH / 2, width: labelW, height: labelH)
-        midLabel?.frame = CGRect(x: 16, y: midFrame.midY - labelH / 2, width: labelW, height: labelH)
-        botLabel?.frame = CGRect(x: 16, y: botFrame.midY - labelH / 2, width: labelW, height: labelH)
 
-        // ラベル色
-        let activeTextColor = activeStroke
-        let dimTextColor = NSColor(white: 0.65, alpha: 0.9).cgColor
-        switch zone {
-        case .stackAbove:
-            topLabel?.foregroundColor = activeTextColor
-            midLabel?.foregroundColor = dimTextColor
-            botLabel?.foregroundColor = dimTextColor
-        case .swap:
-            topLabel?.foregroundColor = dimTextColor
-            midLabel?.foregroundColor = activeTextColor
-            botLabel?.foregroundColor = dimTextColor
-        case .stackBelow:
-            topLabel?.foregroundColor = dimTextColor
-            midLabel?.foregroundColor = dimTextColor
-            botLabel?.foregroundColor = activeTextColor
+        if isInsert {
+            // 挿入ゾーン: フルカラム緑ハイライト（3分割なし）
+            topZoneLayer?.isHidden = true
+            midZoneLayer?.isHidden = false
+            botZoneLayer?.isHidden = true
+            topDivider?.isHidden = true
+            botDivider?.isHidden = true
+            topLabel?.isHidden = true
+            botLabel?.isHidden = true
+            midZoneLayer?.frame = CGRect(x: 0, y: 0, width: w, height: h)
+            midZoneLayer?.backgroundColor = activeFill
+            midLabel?.isHidden = false
+            midLabel?.string = zone == .insertLeft ? "⟵ Insert as new column" : "Insert as new column ⟶"
+            midLabel?.frame = CGRect(x: 16, y: h / 2 - labelH / 2, width: labelW, height: labelH)
+            midLabel?.foregroundColor = activeStroke
+        } else {
+            topZoneLayer?.isHidden = false
+            midZoneLayer?.isHidden = false
+            botZoneLayer?.isHidden = false
+            topDivider?.isHidden = false
+            botDivider?.isHidden = false
+            topLabel?.isHidden = false
+            midLabel?.isHidden = false
+            botLabel?.isHidden = false
+
+            switch zone {
+            case .stackAbove:
+                topZoneLayer?.backgroundColor = activeFill
+                midZoneLayer?.backgroundColor = dimFill
+                botZoneLayer?.backgroundColor = dimFill
+            case .swap:
+                topZoneLayer?.backgroundColor = dimFill
+                midZoneLayer?.backgroundColor = activeFill
+                botZoneLayer?.backgroundColor = dimFill
+            case .stackBelow:
+                topZoneLayer?.backgroundColor = dimFill
+                midZoneLayer?.backgroundColor = dimFill
+                botZoneLayer?.backgroundColor = activeFill
+            default:
+                break
+            }
+
+            // ラベル配置（各ゾーン中央）
+            topLabel?.frame = CGRect(x: 16, y: topFrame.midY - labelH / 2, width: labelW, height: labelH)
+            midLabel?.frame = CGRect(x: 16, y: midFrame.midY - labelH / 2, width: labelW, height: labelH)
+            botLabel?.frame = CGRect(x: 16, y: botFrame.midY - labelH / 2, width: labelW, height: labelH)
+
+            // ラベル色
+            let activeTextColor = activeStroke
+            let dimTextColor = NSColor(white: 0.65, alpha: 0.9).cgColor
+            switch zone {
+            case .stackAbove:
+                topLabel?.foregroundColor = activeTextColor
+                midLabel?.foregroundColor = dimTextColor
+                botLabel?.foregroundColor = dimTextColor
+            case .swap:
+                topLabel?.foregroundColor = dimTextColor
+                midLabel?.foregroundColor = activeTextColor
+                botLabel?.foregroundColor = dimTextColor
+            case .stackBelow:
+                topLabel?.foregroundColor = dimTextColor
+                midLabel?.foregroundColor = dimTextColor
+                botLabel?.foregroundColor = activeTextColor
+            default:
+                break
+            }
         }
 
         // 外周枠線（細め）
@@ -158,6 +194,8 @@ final class DropTargetOverlayManager {
             return (Self.colorStackBlue, Self.colorStackBlueFill)
         case .swap:
             return (Self.colorSwapYellow, Self.colorSwapYellowFill)
+        case .insertLeft, .insertRight:
+            return (Self.colorInsertGreen, Self.colorInsertGreenFill)
         }
     }
 
@@ -230,9 +268,9 @@ final class DropTargetOverlayManager {
             rootLayer.addSublayer(t)
             return t
         }
-        topLabel = makeLabel("▲  上にスタック")
-        midLabel = makeLabel("⇄  差し込む")
-        botLabel = makeLabel("▼  下にスタック")
+        topLabel = makeLabel("▲  Stack above")
+        midLabel = makeLabel("⇄  Swap")
+        botLabel = makeLabel("▼  Stack below")
 
         // ---- 外周枠線 ----
         let border = CAShapeLayer()

@@ -1026,12 +1026,16 @@ final class WindowManager {
         return false
     }
 
-    /// point が frame（ターゲットウィンドウ、Quartz座標）の3ゾーンのどこにあるか判定する。
+    /// point が frame（ターゲットウィンドウ、Quartz座標）のどのゾーンにあるか判定する。
+    /// 左右端20%は insertLeft/insertRight、中央60%は上/中/下の3ゾーン。
     /// Quartz座標（Y下向き）: minY=視覚上端, maxY=視覚下端
     private func dropZone(point: CGPoint, in frame: CGRect) -> DropZone {
+        let edgeWidth = frame.width * 0.20
+        if point.x < frame.minX + edgeWidth { return .insertLeft }
+        if point.x > frame.maxX - edgeWidth { return .insertRight }
         let third = frame.height / 3
-        if point.y < frame.minY + third { return .stackAbove }  // 上 1/3
-        if point.y > frame.maxY - third { return .stackBelow }  // 下 1/3
+        if point.y < frame.minY + third { return .stackAbove }
+        if point.y > frame.maxY - third { return .stackBelow }
         return .swap
     }
 
@@ -1111,6 +1115,10 @@ final class WindowManager {
                         if has1 && has2 { screens[i].workspaces[j].swapWindows(draggedID, target); break }
                     }
                 }
+            case .insertLeft:
+                expelWindowByMouseInsert(draggedID, target: target, insertBefore: true)
+            case .insertRight:
+                expelWindowByMouseInsert(draggedID, target: target, insertBefore: false)
             }
         }
         swapCooldownEnd = Date().addingTimeInterval(0.5)
@@ -1323,6 +1331,47 @@ final class WindowManager {
                     }
                     return
                 }
+            }
+        }
+    }
+
+    /// ドラッグで別カラムの左端/右端にドロップしたとき、追い出して新カラムとして挿入する。
+    /// - insertBefore: true → ターゲットカラムの左に挿入、false → 右に挿入
+    private func expelWindowByMouseInsert(_ draggedID: WindowID, target targetID: WindowID, insertBefore: Bool) {
+        for i in screens.indices {
+            for j in screens[i].workspaces.indices {
+                guard let srcIdx = screens[i].workspaces[j].columnIndex(for: draggedID),
+                      let tgtIdx = screens[i].workspaces[j].columnIndex(for: targetID)
+                else { continue }
+
+                let srcCol = screens[i].workspaces[j].columns[srcIdx]
+
+                if srcCol.windows.count == 1 {
+                    // 単一ウィンドウカラム → カラムごとリオーダー
+                    let col = screens[i].workspaces[j].columns[srcIdx]
+                    screens[i].workspaces[j].columns.remove(at: srcIdx)
+                    let adjustedTgt = srcIdx < tgtIdx ? tgtIdx - 1 : tgtIdx
+                    let insertIdx = insertBefore ? adjustedTgt : adjustedTgt + 1
+                    let safeIdx = max(0, min(insertIdx, screens[i].workspaces[j].columns.count))
+                    screens[i].workspaces[j].columns.insert(col, at: safeIdx)
+                    screens[i].workspaces[j].activeColumnIndex = safeIdx
+                } else {
+                    // 複数ウィンドウカラム → アクティブウィンドウを追い出して新カラム作成
+                    guard let windowID = srcCol.activeWindowID else { continue }
+                    let screenWidth = screens[i].frame.width
+                    let colWidth = (windowRegistry[windowID]?.frame.width ?? 0) > 0
+                        ? windowRegistry[windowID]!.frame.width
+                        : config.defaultColumnWidth(for: screenWidth)
+                    screens[i].workspaces[j].columns[srcIdx].removeWindow(windowID)
+                    let insertIdx = insertBefore ? tgtIdx : tgtIdx + 1
+                    let safeIdx = max(0, min(insertIdx, screens[i].workspaces[j].columns.count))
+                    let newCol = Column(windows: [windowID], width: colWidth)
+                    screens[i].workspaces[j].columns.insert(newCol, at: safeIdx)
+                    screens[i].workspaces[j].activeColumnIndex = safeIdx
+                }
+                niriLog("[drag] expel insert: dragged=\(draggedID) target=\(targetID) before=\(insertBefore)")
+                needsLayout = true
+                return
             }
         }
     }
