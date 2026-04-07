@@ -427,13 +427,11 @@ final class WindowManager {
         }
         mouse.onMouseUp = { [weak self] point in
             guard let self else { return }
-            self.dropTargetOverlay.hide()
             self.isMouseDown = false
             self.mouseDownWindowID = nil
             self.mouseDownFrame = nil
             self.needsLayout = true  // リサイズ・スワップ確定時にレイアウトを適用
             self.handleMouseUp(at: point)
-            self.dragDirectionLock = nil
             self.mouseDownPoint = nil
         }
         mouse.onMouseDragged = { [weak self] point in
@@ -1127,6 +1125,7 @@ final class WindowManager {
         defer {
             dragDirectionLock = nil
             ghostInsertIndex = nil
+            dropTargetOverlay.hide()
         }
         guard let draggedID = draggedWindowID else { return }
         draggedWindowID = nil
@@ -1208,16 +1207,7 @@ final class WindowManager {
             case .stackBelow:
                 consumeWindowByMouse(draggedID, target: target, position: .below)
             case .swap:
-                for i in screens.indices {
-                    for j in screens[i].workspaces.indices {
-                        let has1 = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
-                        let has2 = screens[i].workspaces[j].columnIndex(for: target) != nil
-                        if has1 && has2 {
-                            screens[i].workspaces[j].swapWindows(draggedID, target)
-                            break
-                        }
-                    }
-                }
+                break  // 同一カラム内スワップは上の isSameColumn ブランチで処理済み
             case .expel, .ghostColumn:
                 break  // 縦ドラッグパスでは到達しない
             }
