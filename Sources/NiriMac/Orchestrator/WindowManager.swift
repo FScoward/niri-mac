@@ -1406,6 +1406,48 @@ final class WindowManager {
 
     private enum DragSide { case left, right }
 
+    /// 単一ウィンドウカラムをインデックス toIndex の位置に移動する（column reorder）
+    private func reorderColumnByMouse(windowID: WindowID, toIndex: Int, screenIdx: Int) {
+        niriLog("[drag] reorder: win=\(windowID) → index \(toIndex)")
+        guard screenIdx < screens.count else { return }
+        var ws = screens[screenIdx].activeWorkspace
+        guard let colIdx = ws.columnIndex(for: windowID) else { return }
+
+        // 移動なし: toIndex が現在のカラムの前後のどちらか
+        guard toIndex != colIdx, toIndex != colIdx + 1 else {
+            niriLog("[drag] reorder: no-op (same position)")
+            return
+        }
+
+        let col = ws.columns.remove(at: colIdx)
+        // colIdx より後ろの insertIndex は 1 ずれる
+        let adjustedIdx = toIndex > colIdx ? toIndex - 1 : toIndex
+        let safeIdx = min(max(adjustedIdx, 0), ws.columns.count)
+        ws.columns.insert(col, at: safeIdx)
+        ws.activeColumnIndex = safeIdx
+        ws.recenterViewOffset(gap: config.gapWidth)
+        screens[screenIdx].activeWorkspace = ws
+    }
+
+    /// スタックカラムからウィンドウを切り出し、insertIndex の位置に独立カラムとして挿入する
+    private func expelWindowByMouse(windowID: WindowID, insertIndex: Int, screenIdx: Int) {
+        niriLog("[drag] expel: win=\(windowID) → index \(insertIndex)")
+        guard screenIdx < screens.count else { return }
+        var ws = screens[screenIdx].activeWorkspace
+        guard let colIdx = ws.columnIndex(for: windowID),
+              ws.columns[colIdx].windows.count > 1 else { return }
+
+        let sourceColWidth = ws.columns[colIdx].width
+        ws.columns[colIdx].removeWindow(windowID)
+        // ウィンドウを除去しても元カラムは残る（count > 1 保証）
+        let newColumn = Column(windows: [windowID], width: sourceColWidth)
+        let safeIdx = min(max(insertIndex, 0), ws.columns.count)
+        ws.addColumn(newColumn, at: safeIdx)
+        ws.focusColumn(at: safeIdx)
+        ws.recenterViewOffset(gap: config.gapWidth)
+        screens[screenIdx].activeWorkspace = ws
+    }
+
     /// マウスドラッグによる Expel: windowID を含むカラムから切り出して独立カラムにする
     private func expelWindowByMouse(windowID: WindowID, side: DragSide) {
         niriLog("[drag] expel: \(windowID) to \(side == .left ? "left" : "right")")
