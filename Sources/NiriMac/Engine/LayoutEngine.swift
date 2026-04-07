@@ -107,6 +107,37 @@ enum LayoutEngine {
         return results
     }
 
+    /// カーソルX（Quartz スクリーン座標）から最も近いカラム間ギャップのインデックスを返す。
+    /// - 返り値: 新カラムを挿入するインデックス（0=先頭, columns.count=末尾）
+    static func nearestGapIndex(
+        cursorX: CGFloat,
+        workspace: Workspace,
+        config: LayoutConfig
+    ) -> Int {
+        let gap = config.gapWidth
+        let xs = workspace.columnXPositions(gap: gap)
+        let offset = workspace.viewOffset.current
+        let workingMinX = workspace.workingArea.minX
+
+        // ギャップ中点 X を収集: 先頭 + 各カラム右端+gap/2
+        var gapPositions: [CGFloat] = []
+        gapPositions.append(workingMinX + gap / 2)  // 先頭（index 0）
+
+        for (i, col) in workspace.columns.enumerated() {
+            let colScreenX = workingMinX + gap + xs[i] + offset
+            let colRightX = colScreenX + col.width
+            gapPositions.append(colRightX + gap / 2)  // col[i]の後ろ（index i+1）
+        }
+
+        var nearestIdx = 0
+        var minDist = CGFloat.greatestFiniteMagnitude
+        for (i, gapX) in gapPositions.enumerated() {
+            let dist = abs(cursorX - gapX)
+            if dist < minDist { minDist = dist; nearestIdx = i }
+        }
+        return nearestIdx
+    }
+
     /// カラム内ウィンドウの縦分割を計算
     static func distributeColumnHeight(
         column: Column,

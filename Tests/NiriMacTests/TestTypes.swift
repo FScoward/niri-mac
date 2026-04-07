@@ -398,4 +398,32 @@ enum LayoutEngine {
     static func isWindowOffScreen(_ frame: CGRect, workingArea: CGRect) -> Bool {
         return frame.maxX <= workingArea.minX || frame.minX >= workingArea.maxX
     }
+
+    static func nearestGapIndex(
+        cursorX: CGFloat,
+        workspace: Workspace,
+        config: LayoutConfig
+    ) -> Int {
+        let gap = config.gapWidth
+        let xs = workspace.columnXPositions(gap: gap)
+        let offset = workspace.viewOffset.current
+        let workingMinX = workspace.workingArea.minX
+
+        var gapPositions: [CGFloat] = []
+        gapPositions.append(workingMinX + gap / 2)
+
+        for (i, col) in workspace.columns.enumerated() {
+            let colScreenX = workingMinX + gap + xs[i] + offset
+            let colRightX = colScreenX + col.width
+            gapPositions.append(colRightX + gap / 2)
+        }
+
+        var nearestIdx = 0
+        var minDist = CGFloat.greatestFiniteMagnitude
+        for (i, gapX) in gapPositions.enumerated() {
+            let dist = abs(cursorX - gapX)
+            if dist < minDist { minDist = dist; nearestIdx = i }
+        }
+        return nearestIdx
+    }
 }
