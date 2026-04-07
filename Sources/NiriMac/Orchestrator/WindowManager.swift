@@ -420,7 +420,6 @@ final class WindowManager {
                     break
                 }
             }
-            niriLog("[drag-dbg] mouseDown: win=\(String(describing: self.mouseDownWindowID)) point=\(point)")
             self.handleMouseFocus(at: point)
         }
         mouse.onScroll = { [weak self] deltaX, deltaY, isContinuous, flags in
@@ -1412,8 +1411,6 @@ final class WindowManager {
         needsLayout = true
     }
 
-    private enum DragSide { case left, right }
-
     /// 単一ウィンドウカラムをインデックス toIndex の位置に移動する（column reorder）
     private func reorderColumnByMouse(windowID: WindowID, toIndex: Int, screenIdx: Int) {
         niriLog("[drag] reorder: win=\(windowID) → index \(toIndex)")
@@ -1454,28 +1451,6 @@ final class WindowManager {
         ws.focusColumn(at: safeIdx)
         ws.recenterViewOffset(gap: config.gapWidth)
         screens[screenIdx].activeWorkspace = ws
-    }
-
-    /// マウスドラッグによる Expel: windowID を含むカラムから切り出して独立カラムにする
-    private func expelWindowByMouse(windowID: WindowID, side: DragSide) {
-        niriLog("[drag] expel: \(windowID) to \(side == .left ? "left" : "right")")
-        for i in screens.indices {
-            for j in screens[i].workspaces.indices {
-                guard let colIdx = screens[i].workspaces[j].columnIndex(for: windowID),
-                      screens[i].workspaces[j].columns[colIdx].windows.count > 1 else { continue }
-                var ws = screens[i].workspaces[j]
-                // 元カラムの幅を引き継ぐ（defaultColumnWidth だとサイズが崩れる）
-                let sourceColWidth = ws.columns[colIdx].width
-                ws.columns[colIdx].removeWindow(windowID)
-                let newColumn = Column(windows: [windowID], width: sourceColWidth)
-                let insertIdx = (side == .left) ? colIdx : colIdx + 1
-                ws.addColumn(newColumn, at: insertIdx)
-                ws.focusColumn(at: insertIdx)
-                ws.recenterViewOffset(gap: config.gapWidth)
-                screens[i].workspaces[j] = ws
-                return
-            }
-        }
     }
 
     /// マウスドラッグによる consume: draggedID を targetID のカラムに position で挿入する
