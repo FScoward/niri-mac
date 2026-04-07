@@ -28,6 +28,8 @@ final class KeyboardShortcutManager {
         case expelFromColumn
         case cycleColumnWidth
         case togglePin
+        case moveWindowUpInColumn, moveWindowDownInColumn
+        case growWindowHeight, shrinkWindowHeight
         case quit
     }
 
@@ -75,6 +77,12 @@ final class KeyboardShortcutManager {
         Binding(modifiers: [.control, .option], keyCode: 15, action: .cycleColumnWidth),
         // カラムpin切り替え (Ctrl+Opt+P)
         Binding(modifiers: [.control, .option], keyCode: 35, action: .togglePin),
+        // カラム内ウィンドウ並び替え (Ctrl+Opt+Shift+↑/↓)
+        Binding(modifiers: [.control, .option, .shift], keyCode: 126, action: .moveWindowUpInColumn),
+        Binding(modifiers: [.control, .option, .shift], keyCode: 125, action: .moveWindowDownInColumn),
+        // ウィンドウ高さリサイズ (Ctrl+Opt+- / Ctrl+Opt+=)
+        Binding(modifiers: [.control, .option], keyCode: 27, action: .shrinkWindowHeight),
+        Binding(modifiers: [.control, .option], keyCode: 24, action: .growWindowHeight),
         // 終了
         Binding(modifiers: [.control, .option], keyCode: 12, action: .quit),
     ]
