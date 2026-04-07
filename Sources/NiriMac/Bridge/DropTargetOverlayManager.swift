@@ -7,6 +7,7 @@ enum DropZone {
     case swap         // 黄破線: スワップ（現状維持）
     case stackBelow   // 青破線: ターゲットの下にスタック
     case expel        // 赤破線: 解除モード
+    case ghostColumn  // オレンジ破線: 横ドラッグ挿入プレビュー
 }
 
 /// ドラッグ中のドロップターゲットウィンドウに破線の色枠を重ねて表示する NSPanel オーバーレイ。
@@ -49,6 +50,11 @@ final class DropTargetOverlayManager {
         panel?.orderOut(nil)
     }
 
+    /// 横ドラッグ中のゴーストカラム挿入位置をオレンジ破線で表示する（Quartz座標系）
+    func showGhost(frame: CGRect) {
+        show(frame: frame, zone: .ghostColumn)
+    }
+
     // MARK: - ゾーン別スタイル
 
     private func zoneColors(_ zone: DropZone) -> (CGColor, CGColor) {
@@ -67,6 +73,11 @@ final class DropTargetOverlayManager {
             return (
                 NSColor(red: 1.0, green: 0.42, blue: 0.42, alpha: 1.0).cgColor,
                 NSColor(red: 1.0, green: 0.42, blue: 0.42, alpha: 0.08).cgColor
+            )
+        case .ghostColumn:
+            return (
+                NSColor(red: 1.0, green: 0.62, blue: 0.25, alpha: 1.0).cgColor,
+                NSColor(red: 1.0, green: 0.62, blue: 0.25, alpha: 0.12).cgColor
             )
         }
     }

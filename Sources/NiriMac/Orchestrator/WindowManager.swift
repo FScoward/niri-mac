@@ -407,6 +407,7 @@ final class WindowManager {
                     break
                 }
             }
+            niriLog("[drag-dbg] mouseDown: win=\(String(describing: self.mouseDownWindowID)) point=\(point)")
             self.handleMouseFocus(at: point)
         }
         mouse.onScroll = { [weak self] deltaX, deltaY, isContinuous, flags in
@@ -422,6 +423,7 @@ final class WindowManager {
             self.handleMouseUp(at: point)
         }
         mouse.onMouseDragged = { [weak self] point in
+            niriLog("[drag-dbg] onMouseDragged: draggedID=\(String(describing: self?.draggedWindowID)) isMouseDown=\(String(describing: self?.isMouseDown)) downWin=\(String(describing: self?.mouseDownWindowID))")
             guard let self, let draggedID = self.draggedWindowID else {
                 self?.dropTargetOverlay.hide()
                 return
@@ -881,6 +883,28 @@ final class WindowManager {
         }
         lastComputedFrames = allFrames
 
+        // Y位置補正パス: 高さ変更を拒否したウィンドウ（iTerm2等の文字グリッドスナップ）の
+        // 後続ウィンドウY位置を実際の高さに合わせてずらす
+        for screen in screens {
+            let ws = screen.activeWorkspace
+            for col in ws.columns {
+                guard col.windows.count > 1 else { continue }
+                var prevActualBottom: CGFloat? = nil
+                for windowID in col.windows {
+                    guard !parkedWindowIDs.contains(windowID) else { continue }
+                    guard var computedFrame = allFrames.first(where: { $0.0 == windowID })?.1 else { continue }
+                    if let prevBottom = prevActualBottom, prevBottom > computedFrame.origin.y + 2 {
+                        let correctedY = prevBottom
+                        niriLog("[layout]   🔧 Y補正 win=\(windowID): y=\(Int(computedFrame.origin.y))→\(Int(correctedY))")
+                        computedFrame.origin.y = correctedY
+                        try? axBridge.setWindowFrame(windowID, frame: computedFrame)
+                    }
+                    let actualFrame = axBridge.windowFrame(windowID) ?? computedFrame
+                    prevActualBottom = actualFrame.maxY + config.gapHeight
+                }
+            }
+        }
+
         // フォーカスオーバーレイを更新（parkedWindowIDs を除いた可視フレームのみ渡す）
         // applyLayout はメインスレッドで動くため直接呼び出す
         let visibleFrames = allFrames.filter { !parkedWindowIDs.contains($0.0) }
@@ -1029,65 +1053,99 @@ final class WindowManager {
         guard let draggedID = draggedWindowID else { return }
         draggedWindowID = nil
 
-        // 解除モード: 2ウィンドウ以上のカラムでカーソルがカラム外
-        if let colFrame = columnFrame(for: draggedID),
-           columnWindowCount(for: draggedID) > 1,
-           !colFrame.contains(point) {
-            let side: DragSide = point.x < colFrame.midX ? .left : .right
-            expelWindowByMouse(windowID: draggedID, side: side)
-            swapCooldownEnd = Date().addingTimeInterval(0.5)
+        // ターゲット判定（優先順）:
+        // 1. カーソルが直接ウィンドウフレーム内にある
+        // 2. ドラッグ中ウィンドウと最大オーバーラップのウィンドウ
+        // ※ expel より先に判定する（スタック操作がexpelより優先）
+        var targetID: WindowID? = nil
+        var targetFrame: CGRect = .zero
+
+        // Priority 1: カーソルヒット
+        for (windowID, frame) in lastComputedFrames {
+            guard windowID != draggedID, frame.contains(point) else { continue }
+            targetID = windowID
+            targetFrame = frame
+            break
+        }
+
+        // Priority 2: フレームオーバーラップ最大（タイトルバードラッグ対策）
+        if targetID == nil, let draggedFrame = axBridge.windowFrame(draggedID) {
+            var bestOverlap: CGFloat = 0
+            for (windowID, frame) in lastComputedFrames {
+                guard windowID != draggedID else { continue }
+                let intersection = draggedFrame.intersection(frame)
+                guard !intersection.isNull else { continue }
+                let overlap = intersection.width * intersection.height
+                if overlap > bestOverlap {
+                    bestOverlap = overlap
+                    targetID = windowID
+                    targetFrame = frame
+                }
+            }
+        }
+
+        // ターゲットなし → 解除モードまたはレイアウト復元
+        guard let target = targetID else {
+            // 解除モード: 2ウィンドウ以上のカラムでカーソルがカラム外
+            if let colFrame = columnFrame(for: draggedID),
+               columnWindowCount(for: draggedID) > 1,
+               !colFrame.contains(point) {
+                let side: DragSide = point.x < colFrame.midX ? .left : .right
+                expelWindowByMouse(windowID: draggedID, side: side)
+                swapCooldownEnd = Date().addingTimeInterval(0.5)
+                needsLayout = true
+                return
+            }
+            niriLog("[drag] mouseUp: no target — restoring layout")
             needsLayout = true
             return
         }
 
-        // ターゲットウィンドウを探してスタック/スワップ
-        for (windowID, frame) in lastComputedFrames {
-            guard frame.contains(point), windowID != draggedID else { continue }
+        // ゾーン判定:
+        // 1. カーソルがターゲットフレーム内: 3分割判定（top/middle/bottom）
+        // 2. オーバーラップ検出: ドラッグウィンドウの現在中心Y vs ターゲット中心Y
+        //    （カーソルはタイトルバー上端に偏るため、ウィンドウ位置で判定する方が正確）
+        let zone: DropZone
+        if isSameColumn(draggedID, target) {
+            zone = .swap
+        } else if targetFrame.contains(point) {
+            zone = dropZone(point: point, in: targetFrame)
+        } else if let draggedFrame = axBridge.windowFrame(draggedID) {
+            zone = draggedFrame.midY < targetFrame.midY ? .stackAbove : .stackBelow
+        } else {
+            zone = point.y < targetFrame.midY ? .stackAbove : .stackBelow
+        }
+        niriLog("[drag] mouseUp: dragged=\(draggedID) target=\(target) zone=\(zone)")
 
-            if isSameColumn(draggedID, windowID) {
-                // 同一カラム → スワップ（既存動作）
-                niriLog("[drag] swap (same col): \(draggedID) ↔ \(windowID)")
+        if isSameColumn(draggedID, target) {
+            niriLog("[drag] swap (same col): \(draggedID) ↔ \(target)")
+            for i in screens.indices {
+                for j in screens[i].workspaces.indices {
+                    let has1 = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
+                    let has2 = screens[i].workspaces[j].columnIndex(for: target) != nil
+                    if has1 && has2 { screens[i].workspaces[j].swapWindows(draggedID, target); break }
+                }
+            }
+        } else {
+            switch zone {
+            case .stackAbove:
+                consumeWindowByMouse(draggedID, target: target, position: .above)
+            case .stackBelow:
+                consumeWindowByMouse(draggedID, target: target, position: .below)
+            case .swap:
+                niriLog("[drag] swap: \(draggedID) ↔ \(target)")
                 for i in screens.indices {
                     for j in screens[i].workspaces.indices {
                         let has1 = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
-                        let has2 = screens[i].workspaces[j].columnIndex(for: windowID) != nil
-                        if has1 && has2 {
-                            screens[i].workspaces[j].swapWindows(draggedID, windowID)
-                            break
-                        }
+                        let has2 = screens[i].workspaces[j].columnIndex(for: target) != nil
+                        if has1 && has2 { screens[i].workspaces[j].swapWindows(draggedID, target); break }
                     }
                 }
-            } else {
-                // 異なるカラム → ゾーンに応じてスタックまたはスワップ
-                switch dropZone(point: point, in: frame) {
-                case .stackAbove:
-                    consumeWindowByMouse(draggedID, target: windowID, position: .above)
-                case .stackBelow:
-                    consumeWindowByMouse(draggedID, target: windowID, position: .below)
-                case .swap:
-                    niriLog("[drag] swap: \(draggedID) ↔ \(windowID)")
-                    for i in screens.indices {
-                        for j in screens[i].workspaces.indices {
-                            let has1 = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
-                            let has2 = screens[i].workspaces[j].columnIndex(for: windowID) != nil
-                            if has1 && has2 {
-                                screens[i].workspaces[j].swapWindows(draggedID, windowID)
-                                break
-                            }
-                        }
-                    }
-                case .expel:
-                    // dropZone() は .expel を返さない（解除は上のカラム外判定で処理済み）
-                    break
-                }
+            case .expel, .ghostColumn:
+                break
             }
-            swapCooldownEnd = Date().addingTimeInterval(0.5)
-            needsLayout = true
-            return
         }
-
-        // どのウィンドウにもドロップされなかった → レイアウトを元に戻す
-        niriLog("[drag] mouseUp: no target — restoring layout")
+        swapCooldownEnd = Date().addingTimeInterval(0.5)
         needsLayout = true
     }
 
@@ -1286,12 +1344,14 @@ final class WindowManager {
                 guard let colIdx = screens[i].workspaces[j].columnIndex(for: windowID),
                       screens[i].workspaces[j].columns[colIdx].windows.count > 1 else { continue }
                 var ws = screens[i].workspaces[j]
+                // 元カラムの幅を引き継ぐ（defaultColumnWidth だとサイズが崩れる）
+                let sourceColWidth = ws.columns[colIdx].width
                 ws.columns[colIdx].removeWindow(windowID)
-                let screenWidth = screens[i].frame.width
-                let newColWidth = config.defaultColumnWidth(for: screenWidth)
-                let newColumn = Column(windows: [windowID], width: newColWidth)
+                let newColumn = Column(windows: [windowID], width: sourceColWidth)
                 let insertIdx = (side == .left) ? colIdx : colIdx + 1
                 ws.addColumn(newColumn, at: insertIdx)
+                ws.focusColumn(at: insertIdx)
+                ws.recenterViewOffset(gap: config.gapWidth)
                 screens[i].workspaces[j] = ws
                 return
             }
@@ -1310,7 +1370,13 @@ final class WindowManager {
                 let hasDragged = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
                 let hasTarget  = screens[i].workspaces[j].columnIndex(for: targetID) != nil
                 if hasDragged && hasTarget {
+                    if let tCol = screens[i].workspaces[j].columnIndex(for: targetID) {
+                        niriLog("[drag] stack before: col[\(tCol)]=\(screens[i].workspaces[j].columns[tCol].windows)")
+                    }
                     screens[i].workspaces[j].consumeWindowIntoColumn(draggedID, target: targetID, position: position)
+                    if let tCol = screens[i].workspaces[j].columnIndex(for: targetID) {
+                        niriLog("[drag] stack after:  col[\(tCol)]=\(screens[i].workspaces[j].columns[tCol].windows)")
+                    }
                     return
                 }
             }
