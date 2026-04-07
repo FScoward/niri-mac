@@ -70,16 +70,6 @@ final class WindowManager {
     /// ドラッグ判定の移動距離閾値（px）
     private let dragThreshold: CGFloat = 20
 
-    /// ドラッグ方向ロック（確定後は mouseUp まで変わらない）
-    private var dragDirectionLock: DragDirection? = nil
-    private enum DragDirection { case horizontal, vertical }
-
-    /// ゴーストカラムの挿入予定インデックス（横ドラッグ確定後に更新）
-    private var ghostInsertIndex: Int? = nil
-
-    /// MouseDown 時のカーソル座標（方向判定用）
-    private var mouseDownPoint: CGPoint? = nil
-
     /// スワップ直後のクールダウン終了時刻（applyLayout 由来の windowMoved 誤検知を防ぐ）
     private var swapCooldownEnd: Date = .distantPast
 
@@ -410,9 +400,6 @@ final class WindowManager {
         mouse.onMouseDown = { [weak self] point in
             guard let self else { return }
             self.isMouseDown = true
-            self.dragDirectionLock = nil
-            self.ghostInsertIndex = nil
-            self.mouseDownPoint = point
             for (windowID, frame) in self.lastComputedFrames {
                 if frame.contains(point) {
                     self.mouseDownWindowID = windowID
@@ -432,64 +419,21 @@ final class WindowManager {
             self.mouseDownFrame = nil
             self.needsLayout = true  // リサイズ・スワップ確定時にレイアウトを適用
             self.handleMouseUp(at: point)
-            self.mouseDownPoint = nil
         }
         mouse.onMouseDragged = { [weak self] point in
             guard let self, let draggedID = self.draggedWindowID else {
                 self?.dropTargetOverlay.hide()
                 return
             }
-
-            // 方向未確定なら Δx/Δy で判定（閾値: 1.5倍以上の差）
-            if self.dragDirectionLock == nil, let downPoint = self.mouseDownPoint {
-                let dx = abs(point.x - downPoint.x)
-                let dy = abs(point.y - downPoint.y)
-                if dx > dy * 1.5 {
-                    self.dragDirectionLock = .horizontal
-                    niriLog("[drag] direction locked: horizontal")
-                } else if dy > dx * 1.5 {
-                    self.dragDirectionLock = .vertical
-                    niriLog("[drag] direction locked: vertical")
-                }
+            for (windowID, frame) in self.lastComputedFrames {
+                guard frame.contains(point), windowID != draggedID else { continue }
+                let zone: DropZone = self.isSameColumn(draggedID, windowID)
+                    ? .swap
+                    : self.dropZone(point: point, in: frame)
+                self.dropTargetOverlay.show(frame: frame, zone: zone)
+                return
             }
-
-            switch self.dragDirectionLock {
-            case .horizontal:
-                // ゴーストカラムを最近傍ギャップにスナップ
-                guard !self.screens.isEmpty else { break }
-                let screenIdx = self.activeScreenIndex()
-                let insertIdx = LayoutEngine.nearestGapIndex(
-                    cursorX: point.x,
-                    workspace: self.screens[screenIdx].activeWorkspace,
-                    config: self.config
-                )
-                if let ghostFrame = self.ghostColumnFrame(
-                    insertIndex: insertIdx,
-                    draggedWindowID: draggedID,
-                    screenIdx: screenIdx
-                ) {
-                    self.ghostInsertIndex = insertIdx
-                    self.dropTargetOverlay.showGhost(frame: ghostFrame)
-                } else {
-                    self.dropTargetOverlay.hide()
-                }
-
-            case .vertical:
-                // 既存のスタックゾーン判定
-                for (windowID, frame) in self.lastComputedFrames {
-                    guard frame.contains(point), windowID != draggedID else { continue }
-                    let zone: DropZone = self.isSameColumn(draggedID, windowID)
-                        ? .swap
-                        : self.dropZone(point: point, in: frame)
-                    self.dropTargetOverlay.show(frame: frame, zone: zone)
-                    return
-                }
-                self.dropTargetOverlay.hide()
-
-            case nil:
-                // 方向未確定: オーバーレイなし
-                self.dropTargetOverlay.hide()
-            }
+            self.dropTargetOverlay.hide()
         }
         mouse.onAppActivated = { [weak self] in
             guard let self else { return }
@@ -984,6 +928,8 @@ final class WindowManager {
     ) {
         // ドラッグ中のウィンドウは WM が位置を上書きしない（スナップバックを防ぐ）
         if windowID == draggedWindowID { return }
+        // マウスボタン押下中のウィンドウ候補もスキップ（ドラッグ判定前にアニメーションで戻されるのを防ぐ）
+        if isMouseDown && windowID == mouseDownWindowID { return }
 
         if isWindowOffScreen(frame, workingArea: workingArea) {
             // キャッシュ済みならスキップ（毎フレームのsetFrame呼び出しを防ぐ）
@@ -1080,35 +1026,6 @@ final class WindowManager {
         return false
     }
 
-    /// 挿入インデックスに対応するゴーストカラムの表示フレーム（Quartz座標）を返す
-    private func ghostColumnFrame(insertIndex: Int, draggedWindowID: WindowID, screenIdx: Int) -> CGRect? {
-        guard screenIdx < screens.count else { return nil }
-        let ws = screens[screenIdx].activeWorkspace
-        let gap = config.gapWidth
-        guard let sourceColIdx = ws.columnIndex(for: draggedWindowID) else { return nil }
-        let ghostWidth = ws.columns[sourceColIdx].width
-        let xs = ws.columnXPositions(gap: gap)
-        let offset = ws.viewOffset.current
-        let workingMinX = ws.workingArea.minX
-
-        let ghostX: CGFloat
-        if insertIndex == 0 {
-            ghostX = workingMinX + gap
-        } else {
-            let prevColIdx = insertIndex - 1
-            guard prevColIdx < xs.count else { return nil }
-            let prevColScreenX = workingMinX + gap + xs[prevColIdx] + offset
-            ghostX = prevColScreenX + ws.columns[prevColIdx].width + gap
-        }
-
-        return CGRect(
-            x: ghostX,
-            y: ws.workingArea.minY + gap,
-            width: ghostWidth,
-            height: ws.workingArea.height - gap * 2
-        )
-    }
-
     /// point が frame（ターゲットウィンドウ、Quartz座標）の3ゾーンのどこにあるか判定する。
     /// Quartz座標（Y下向き）: minY=視覚上端, maxY=視覚下端
     private func dropZone(point: CGPoint, in frame: CGRect) -> DropZone {
@@ -1120,36 +1037,15 @@ final class WindowManager {
 
     // MARK: - Mouse Handlers
 
-    /// ドラッグ終了時の処理。方向ロックに応じてモードを分岐する。
+    /// ドラッグ終了時の処理。スタックゾーン判定でモードを決定する。
     private func handleMouseUp(at point: CGPoint) {
         defer {
-            dragDirectionLock = nil
-            ghostInsertIndex = nil
             dropTargetOverlay.hide()
         }
         guard let draggedID = draggedWindowID else { return }
         draggedWindowID = nil
 
-        let screenIdx = activeScreenIndex()
-
-        // 横ドラッグ: ゴーストカラム挿入
-        if dragDirectionLock == .horizontal, let insertIdx = ghostInsertIndex {
-            guard screenIdx < screens.count else { needsLayout = true; return }
-            let ws = screens[screenIdx].activeWorkspace
-            let windowCount = ws.columnIndex(for: draggedID)
-                .map { ws.columns[$0].windows.count } ?? 0
-
-            if windowCount == 1 {
-                reorderColumnByMouse(windowID: draggedID, toIndex: insertIdx, screenIdx: screenIdx)
-            } else if windowCount > 1 {
-                expelWindowByMouse(windowID: draggedID, insertIndex: insertIdx, screenIdx: screenIdx)
-            }
-            swapCooldownEnd = Date().addingTimeInterval(0.5)
-            needsLayout = true
-            return
-        }
-
-        // 縦ドラッグ（または方向未確定）: 既存のターゲット検出 → スタック/スワップ
+        // ターゲット検出 → スタック/スワップ
 
         // Priority 1: カーソルヒット
         var targetID: WindowID? = nil
@@ -1207,9 +1103,14 @@ final class WindowManager {
             case .stackBelow:
                 consumeWindowByMouse(draggedID, target: target, position: .below)
             case .swap:
-                break  // 同一カラム内スワップは上の isSameColumn ブランチで処理済み
-            case .expel, .ghostColumn:
-                break  // 縦ドラッグパスでは到達しない
+                // cross-column 中央ゾーン → 2ウィンドウの位置交換（スワップ）
+                for i in screens.indices {
+                    for j in screens[i].workspaces.indices {
+                        let has1 = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
+                        let has2 = screens[i].workspaces[j].columnIndex(for: target) != nil
+                        if has1 && has2 { screens[i].workspaces[j].swapWindows(draggedID, target); break }
+                    }
+                }
             }
         }
         swapCooldownEnd = Date().addingTimeInterval(0.5)
@@ -1399,48 +1300,6 @@ final class WindowManager {
 
         screens[screenIdx].activeWorkspace = ws
         needsLayout = true
-    }
-
-    /// 単一ウィンドウカラムをインデックス toIndex の位置に移動する（column reorder）
-    private func reorderColumnByMouse(windowID: WindowID, toIndex: Int, screenIdx: Int) {
-        niriLog("[drag] reorder: win=\(windowID) → index \(toIndex)")
-        guard screenIdx < screens.count else { return }
-        var ws = screens[screenIdx].activeWorkspace
-        guard let colIdx = ws.columnIndex(for: windowID) else { return }
-
-        // 移動なし: toIndex が現在のカラムの前後のどちらか
-        guard toIndex != colIdx, toIndex != colIdx + 1 else {
-            niriLog("[drag] reorder: no-op (same position)")
-            return
-        }
-
-        let col = ws.columns.remove(at: colIdx)
-        // colIdx より後ろの insertIndex は 1 ずれる
-        let adjustedIdx = toIndex > colIdx ? toIndex - 1 : toIndex
-        let safeIdx = min(max(adjustedIdx, 0), ws.columns.count)
-        ws.columns.insert(col, at: safeIdx)
-        ws.activeColumnIndex = safeIdx
-        ws.recenterViewOffset(gap: config.gapWidth)
-        screens[screenIdx].activeWorkspace = ws
-    }
-
-    /// スタックカラムからウィンドウを切り出し、insertIndex の位置に独立カラムとして挿入する
-    private func expelWindowByMouse(windowID: WindowID, insertIndex: Int, screenIdx: Int) {
-        niriLog("[drag] expel: win=\(windowID) → index \(insertIndex)")
-        guard screenIdx < screens.count else { return }
-        var ws = screens[screenIdx].activeWorkspace
-        guard let colIdx = ws.columnIndex(for: windowID),
-              ws.columns[colIdx].windows.count > 1 else { return }
-
-        let sourceColWidth = ws.columns[colIdx].width
-        ws.columns[colIdx].removeWindow(windowID)
-        // ウィンドウを除去しても元カラムは残る（count > 1 保証）
-        let newColumn = Column(windows: [windowID], width: sourceColWidth)
-        let safeIdx = min(max(insertIndex, 0), ws.columns.count)
-        ws.addColumn(newColumn, at: safeIdx)
-        ws.focusColumn(at: safeIdx)
-        ws.recenterViewOffset(gap: config.gapWidth)
-        screens[screenIdx].activeWorkspace = ws
     }
 
     /// マウスドラッグによる consume: draggedID を targetID のカラムに position で挿入する
