@@ -120,6 +120,21 @@ final class AXObserverBridge {
         AXObserverAddNotification(obs, windowElement, kAXUIElementDestroyedNotification as CFString, selfPtr)
     }
 
+    /// kAXWindowCreatedNotification 発火時に AX 属性が未準備の場合のリトライ
+    private func retryWindowCreated(element: AXUIElement, pid: pid_t, remainingDelays: [Double]) {
+        guard let delay = remainingDelays.first else { return }
+        let nextDelays = Array(remainingDelays.dropFirst())
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            if let info = WindowInfo(axElement: element, ownerPID: pid),
+               WindowInfo.isManageable(axElement: element) {
+                self.onWindowCreated?(info)
+            } else if !nextDelays.isEmpty {
+                self.retryWindowCreated(element: element, pid: pid, remainingDelays: nextDelays)
+            }
+        }
+    }
+
     private func removeObserver(for pid: pid_t) {
         observers.removeValue(forKey: pid)
     }
@@ -139,6 +154,10 @@ final class AXObserverBridge {
                 DispatchQueue.main.async { [weak self] in
                     self?.onWindowCreated?(info)
                 }
+            } else {
+                // ウィンドウの AX 属性がまだ準備できていない場合（Electron/JVM 系で発生）
+                // 短い間隔でリトライして取りこぼしを防ぐ
+                retryWindowCreated(element: element, pid: pid, remainingDelays: [0.1, 0.3, 1.0])
             }
 
         case elementDestroyed:
