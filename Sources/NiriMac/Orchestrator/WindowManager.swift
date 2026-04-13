@@ -896,15 +896,26 @@ final class WindowManager {
         // applyLayout はメインスレッドで動くため直接呼び出す
         let visibleFrames = allFrames.filter { !parkedWindowIDs.contains($0.0) }
         let screenIdx = activeScreenIndex()
-        let focusedID: WindowID? = screenIdx < screens.count
+        let managedFocusedID: WindowID? = screenIdx < screens.count
             ? screens[screenIdx].activeWorkspace.activeWindowID
             : nil
+
+        // float window（管理対象外）がフォーカスを持つ場合も border/dim を適用する
+        var focusedID: WindowID? = managedFocusedID
+        var overlayFrames = visibleFrames
+        if let (fwID, fwFrame) = frontmostWindowIDAndFrame(),
+           !visibleFrames.contains(where: { $0.0 == fwID }) {
+            // 管理対象外ウィンドウ（float window）がフロント → それを overlay の対象にする
+            focusedID = fwID
+            overlayFrames.append((fwID, fwFrame))
+        }
+
         let pinnedWindowIDs = Set(screens.flatMap { $0.activeWorkspace.columns }
             .filter { $0.isPinned }
             .flatMap { $0.windows })
         focusOverlayManager.update(
             focusedID: focusedID,
-            allFrames: visibleFrames,
+            allFrames: overlayFrames,
             pinnedWindowIDs: pinnedWindowIDs,
             config: config
         )
@@ -1229,6 +1240,22 @@ final class WindowManager {
     }
 
     // MARK: - Helpers
+
+    /// フロントウィンドウの WindowID と Quartz フレームを返す（AX 経由）
+    /// niri-mac 自身と取得失敗時は nil を返す
+    private func frontmostWindowIDAndFrame() -> (WindowID, CGRect)? {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var ref: AnyObject?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &ref) == .success,
+              let axWin = ref else { return nil }
+        let axUIWin = axWin as! AXUIElement
+        var windowID: CGWindowID = 0
+        guard _AXUIElementGetWindow(axUIWin, &windowID) == .success else { return nil }
+        guard let frame = WindowInfo.fetchFrame(from: axUIWin) else { return nil }
+        return (windowID, frame)
+    }
 
     private func activeScreenIndex() -> Int {
         // 前面アプリのフォーカスウィンドウが属するスクリーンを優先
