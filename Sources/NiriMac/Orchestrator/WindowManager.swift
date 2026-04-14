@@ -283,7 +283,7 @@ final class WindowManager {
 
         parkedWindowIDs.removeAll()
         applyLayout(animated: false)
-        focusActiveWindow()
+        activateWindow()  // スペース切り替えはマウス操作起点 → カーソル移動しない
 
         niriLog("[space-sync] layout applied (\(currentSpaceWindowIDs.count) windows)")
     }
@@ -594,7 +594,8 @@ final class WindowManager {
 
         applyLayout()
         // アクティブウィンドウが閉じた場合のみフォーカスを移動（②）
-        if wasActive { focusActiveWindow() }
+        // ウィンドウ破棄はユーザーがマウスで×ボタンを押した等の受動的イベント → カーソル移動しない
+        if wasActive { activateWindow() }
 
         niriLog("[niri-mac] Window destroyed: \(id)")
     }
@@ -990,6 +991,16 @@ final class WindowManager {
         }
     }
 
+    /// AX フォーカスのみ。カーソル移動なし（マウス操作・受動的イベント用）
+    private func activateWindow() {
+        let screenIdx = activeScreenIndex()
+        guard screenIdx < screens.count,
+              let windowID = screens[screenIdx].activeWorkspace.activeWindowID
+        else { return }
+        try? axBridge.focusWindow(windowID)
+    }
+
+    /// AX フォーカス + カーソルをウィンドウ中央にワープ（キーボード操作専用）
     private func focusActiveWindow() {
         let screenIdx = activeScreenIndex()
         guard screenIdx < screens.count,
@@ -998,13 +1009,18 @@ final class WindowManager {
 
         try? axBridge.focusWindow(windowID)
 
-        // Feature 2: warp-mouse-to-focus
-        // キーボード操作でフォーカスが移動した際、マウスカーソルをウィンドウ中央にワープ
-        if config.warpMouseToFocus,
-           let frame = lastComputedFrames.first(where: { $0.0 == windowID })?.1,
-           frame.width > 0 {
-            let center = CGPoint(x: frame.midX, y: frame.midY)
-            CGDisplayMoveCursorToPoint(screens[screenIdx].id, center)
+        guard config.warpMouseToFocus else { return }
+
+        // viewOffset がアニメーション中でも target を使って最終フレームを計算する
+        var ws = screens[screenIdx].activeWorkspace
+        ws.viewOffset = .static(offset: ws.viewOffset.target)
+        let frames = LayoutEngine.computeWindowFrames(
+            workspace: ws,
+            screenFrame: screens[screenIdx].frame,
+            config: config
+        )
+        if let frame = frames.first(where: { $0.0 == windowID })?.1, frame.width > 0 {
+            CGDisplayMoveCursorToPoint(screens[screenIdx].id, CGPoint(x: frame.midX, y: frame.midY))
         }
     }
 
