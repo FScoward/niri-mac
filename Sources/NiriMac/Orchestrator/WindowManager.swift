@@ -53,6 +53,9 @@ final class WindowManager {
     /// applyLayout で計算した最新フレーム（マウスヒットテスト用）
     private var lastComputedFrames: [(WindowID, CGRect)] = []
 
+    /// applyLayout 完了後にフォーカスを当てるフラグ（ワークスペース切り替え時に使用）
+    private var focusAfterLayout: Bool = false
+
     /// スクロールフォーカス移動のクールダウン（連打防止）
     private var lastScrollFocusTime: Date = .distantPast
     private let scrollFocusCooldown: TimeInterval = 0.3
@@ -501,6 +504,10 @@ final class WindowManager {
             if hasAnimation || self.needsLayout {
                 self.applyLayout(animated: false)
                 self.needsLayout = false
+                if self.focusAfterLayout {
+                    self.focusAfterLayout = false
+                    self.focusActiveWindow()
+                }
             }
         }
     }
@@ -746,7 +753,7 @@ final class WindowManager {
             niriLog("[action] switchWorkspaceUp → ws=\(screens[screenIdx].activeWorkspaceIndex)")
             screens[screenIdx].switchToPreviousWorkspace()
             needsLayout = true
-            focusActiveWindow()
+            focusAfterLayout = true  // applyLayout 完了後にフォーカス（レイアウト前に呼ぶとマウスが画面外へ飛ぶ）
             return
 
         case .switchWorkspaceDown:
@@ -763,7 +770,7 @@ final class WindowManager {
             }
             screens[screenIdx].switchToNextWorkspace()
             needsLayout = true
-            focusActiveWindow()
+            focusAfterLayout = true  // applyLayout 完了後にフォーカス（レイアウト前に呼ぶとマウスが画面外へ飛ぶ）
             return
 
         case .moveWindowToWorkspaceUp:
