@@ -150,6 +150,7 @@ struct Workspace {
     var activeColumnIndex: Int
     var viewOffset: ViewOffset
     var workingArea: CGRect
+    var autoFitOverridden: Bool
 
     init(workingArea: CGRect) {
         self.id = UUID()
@@ -157,6 +158,13 @@ struct Workspace {
         self.activeColumnIndex = 0
         self.viewOffset = .static(offset: 0)
         self.workingArea = workingArea
+        self.autoFitOverridden = false
+    }
+
+    var isAutoFitEligible: Bool {
+        guard !autoFitOverridden else { return false }
+        guard (1...3).contains(columns.count) else { return false }
+        return !columns.contains(where: { $0.isPinned })
     }
 
     var activeColumn: Column? {
@@ -218,16 +226,24 @@ struct Workspace {
     // MARK: - Column Operations
 
     mutating func addColumn(_ column: Column, at index: Int? = nil) {
+        let wasAboveThreshold = columns.count > 3
         let insertIndex = index ?? (activeColumnIndex + 1)
         let safeIndex = min(max(insertIndex, 0), columns.count)
         columns.insert(column, at: safeIndex)
         activeColumnIndex = safeIndex
+        if wasAboveThreshold != (columns.count > 3) {
+            autoFitOverridden = false
+        }
     }
 
     mutating func removeColumn(at index: Int) {
         guard index < columns.count else { return }
         let wasActive = index == activeColumnIndex
+        let wasAboveThreshold = columns.count > 3
         columns.remove(at: index)
+        if wasAboveThreshold != (columns.count > 3) {
+            autoFitOverridden = false
+        }
         guard !columns.isEmpty else {
             activeColumnIndex = 0
             return
@@ -305,6 +321,8 @@ struct LayoutConfig {
     var gapHeight: CGFloat = 16
     var defaultColumnWidthFraction: CGFloat = 1.0 / 3.0
     var animationDuration: CFTimeInterval = 0.25
+    var autoFitEnabled: Bool = true
+    var autoFitCenterWidthFraction: CGFloat = 2.0 / 3.0
 }
 
 // MARK: - LayoutEngine
@@ -368,6 +386,10 @@ enum LayoutEngine {
         let columns = workspace.columns
         guard !columns.isEmpty else { return results }
 
+        if config.autoFitEnabled && workspace.isAutoFitEligible {
+            return computeAutoFitFrames(workspace: workspace, config: config)
+        }
+
         let xs = columnXPositions(columns: columns, gap: config.gapWidth)
         let scrollOffset = workspace.viewOffset.current
         let workingArea = workspace.workingArea
@@ -391,6 +413,51 @@ enum LayoutEngine {
             }
         }
 
+        return results
+    }
+
+    static func computeAutoFitFrames(workspace: Workspace, config: LayoutConfig) -> [(WindowID, CGRect)] {
+        var results: [(WindowID, CGRect)] = []
+        let columns = workspace.columns
+        let n = columns.count
+        guard (1...3).contains(n) else { return results }
+
+        let workingArea = workspace.workingArea
+        let gap = config.gapWidth
+        let effectiveWidth = workingArea.width - 2 * gap
+
+        let colWidth: CGFloat
+        var xs: [CGFloat] = []
+        switch n {
+        case 1:
+            colWidth = effectiveWidth * config.autoFitCenterWidthFraction
+            xs = [workingArea.midX - colWidth / 2]
+        case 2:
+            colWidth = (effectiveWidth - gap) / 2
+            let leftX = workingArea.minX + gap
+            xs = [leftX, leftX + colWidth + gap]
+        case 3:
+            colWidth = (effectiveWidth - 2 * gap) / 3
+            let leftX = workingArea.minX + gap
+            xs = [leftX, leftX + colWidth + gap, leftX + (colWidth + gap) * 2]
+        default:
+            return results
+        }
+
+        for (colIdx, column) in columns.enumerated() {
+            let heights = distributeColumnHeight(
+                column: column,
+                availableHeight: workingArea.height,
+                gap: config.gapHeight,
+                focusedIndex: column.activeWindowIndex
+            )
+            for (winIdx, windowID) in column.windows.enumerated() {
+                let (winY, winHeight) = heights[winIdx]
+                let screenY = workingArea.minY + winY
+                let frame = CGRect(x: xs[colIdx], y: screenY, width: colWidth, height: winHeight)
+                results.append((windowID, frame))
+            }
+        }
         return results
     }
 

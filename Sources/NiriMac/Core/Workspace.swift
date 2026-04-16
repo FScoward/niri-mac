@@ -8,6 +8,9 @@ struct Workspace {
     var activeColumnIndex: Int
     var viewOffset: ViewOffset
     var workingArea: CGRect
+    /// true のとき Auto-Fit を解除し通常スクロールにフォールバックする。
+    /// ユーザーが明示的にカラム幅を操作した時に立ち、カラム追加/削除でリセットされる。
+    var autoFitOverridden: Bool
 
     init(workingArea: CGRect) {
         self.id = UUID()
@@ -15,6 +18,17 @@ struct Workspace {
         self.activeColumnIndex = 0
         self.viewOffset = .static(offset: 0)
         self.workingArea = workingArea
+        self.autoFitOverridden = false
+    }
+
+    /// Auto-Fit レイアウトの適用可否（configの `autoFitEnabled` は呼び出し側で判定）。
+    /// - pinned カラムが無い
+    /// - カラム数が 1〜3
+    /// - ユーザーが手動でカラム幅を変更していない（`autoFitOverridden == false`）
+    var isAutoFitEligible: Bool {
+        guard !autoFitOverridden else { return false }
+        guard (1...3).contains(columns.count) else { return false }
+        return !columns.contains(where: { $0.isPinned })
     }
 
     var activeColumn: Column? {
@@ -144,16 +158,26 @@ struct Workspace {
     // MARK: - Column Operations
 
     mutating func addColumn(_ column: Column, at index: Int? = nil) {
+        let wasAboveThreshold = columns.count > 3
         let insertIndex = index ?? (activeColumnIndex + 1)
         let safeIndex = min(max(insertIndex, 0), columns.count)
         columns.insert(column, at: safeIndex)
         activeColumnIndex = safeIndex
+        // カラム数が Auto-Fit 閾値（3↔4）をまたいだ時だけ override をリセット。
+        // 1〜3 の範囲内での追加では手動設定を尊重する。
+        if wasAboveThreshold != (columns.count > 3) {
+            autoFitOverridden = false
+        }
     }
 
     mutating func removeColumn(at index: Int) {
         guard index < columns.count else { return }
         let wasActive = index == activeColumnIndex
+        let wasAboveThreshold = columns.count > 3
         columns.remove(at: index)
+        if wasAboveThreshold != (columns.count > 3) {
+            autoFitOverridden = false
+        }
         guard !columns.isEmpty else {
             activeColumnIndex = 0
             return

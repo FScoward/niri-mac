@@ -70,7 +70,7 @@ AccessibilityBridge.setWindowFrame()  ← AX API で実際に移動
 
 **スクロールフォーカス移動クールダウン**: マウス/トラックパッドスクロールによるフォーカス移動は 0.3秒（`scrollFocusCooldown`）の cooldown で連打を防止する。
 
-**カラム幅サイクル**: `Ctrl+Opt+R` で 1/3 → 1/2 → 2/3 → 1.0（画面幅比率）をサイクル。
+**カラム幅サイクル**: `Ctrl+Opt+R` で 1/3 → 1/2 → 2/3（画面幅比率）をサイクル。
 
 ### 主要クラス・型
 
@@ -104,10 +104,11 @@ AccessibilityBridge.setWindowFrame()  ← AX API で実際に移動
 | Ctrl+Opt+Cmd+Shift | ↑ ↓ | アクティブウィンドウをワークスペース移動 |
 | Ctrl+Opt | Return | 左カラムに吸収（consumeIntoColumnLeft） |
 | Ctrl+Opt+Shift | Return | カラムから追い出し（expelFromColumn） |
-| Ctrl+Opt | R | カラム幅サイクル（1/3 → 1/2 → 2/3 → 1.0） |
+| Ctrl+Opt | R | カラム幅サイクル（1/3 → 1/2 → 2/3） |
 | Ctrl+Opt | P | Pin/Unpin カラム |
 | Ctrl+Opt+Shift | ↑ ↓ | カラム内ウィンドウ並び替え（上下） |
 | Ctrl+Opt | - / = | アクティブウィンドウの高さ縮小/拡大（±10%） |
+| Ctrl+Opt | A | Auto-Fit ON/OFF（メニューバーからも切替可） |
 | Ctrl+Opt | Q | 終了 |
 
 マウス操作: クリックでウィンドウフォーカス、水平スクロールでスクロール移動、ウィンドウをドラッグ（20px以上）でスワップ。

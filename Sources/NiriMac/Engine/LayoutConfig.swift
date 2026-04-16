@@ -51,4 +51,13 @@ struct LayoutConfig {
 
     /// タイリングから除外するアプリの bundleID セット
     var excludedBundleIDs: Set<String> = []
+
+    // MARK: - Auto-Fit
+
+    /// Auto-Fit レイアウトを有効にするか。
+    /// 非pinnedカラム数が 1〜3 のとき、スクロールせず画面を等分/中央配置する。
+    var autoFitEnabled: Bool = true
+
+    /// Auto-Fit で 1 カラム時のセンタリング幅（作業領域実効幅に対する比率）
+    var autoFitCenterWidthFraction: CGFloat = 2.0 / 3.0
 }

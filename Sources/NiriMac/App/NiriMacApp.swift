@@ -9,6 +9,7 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pinnedTargetColumnIndex: Int?
     private var focusBorderMenuItem: NSMenuItem?
     private var focusDimMenuItem: NSMenuItem?
+    private var autoFitMenuItem: NSMenuItem?
     private var excludedAppsMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -71,6 +72,11 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(excludedAppsItem)
         menu.addItem(NSMenuItem.separator())
 
+        let autoFitItem = NSMenuItem(title: "Auto-Fit Layout", action: #selector(toggleAutoFit), keyEquivalent: "")
+        autoFitItem.target = self
+        self.autoFitMenuItem = autoFitItem
+        menu.addItem(autoFitItem)
+
         let borderItem = NSMenuItem(title: "Focus Border", action: #selector(toggleFocusBorder), keyEquivalent: "")
         borderItem.target = self
         self.focusBorderMenuItem = borderItem
@@ -92,6 +98,7 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pinnedTargetColumnIndex = windowManager?.activeColumnIndex
         let isPinned = windowManager?.activeColumnIsPinned ?? false
         pinMenuItem?.title = isPinned ? "Unpin Column" : "Pin Column"
+        autoFitMenuItem?.state = windowManager?.autoFitEnabled == true ? .on : .off
         focusBorderMenuItem?.state = windowManager?.focusBorderEnabled == true ? .on : .off
         focusDimMenuItem?.state = windowManager?.focusDimEnabled == true ? .on : .off
 
@@ -131,6 +138,10 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func togglePin() {
         windowManager?.handleAction(.togglePin, forColumnIndex: pinnedTargetColumnIndex)
+    }
+
+    @objc private func toggleAutoFit() {
+        windowManager?.toggleAutoFit()
     }
 
     @objc private func toggleFocusBorder() {
