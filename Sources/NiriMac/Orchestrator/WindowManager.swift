@@ -694,6 +694,7 @@ final class WindowManager {
 
     var focusBorderEnabled: Bool { config.focusBorderEnabled }
     var focusDimEnabled: Bool { config.focusDimEnabled }
+    var autoFitEnabled: Bool { config.autoFitEnabled }
 
     func toggleFocusBorder() {
         config.focusBorderEnabled.toggle()
@@ -702,6 +703,12 @@ final class WindowManager {
 
     func toggleFocusDim() {
         config.focusDimEnabled.toggle()
+        needsLayout = true
+    }
+
+    func toggleAutoFit() {
+        config.autoFitEnabled.toggle()
+        niriLog("[action] toggleAutoFit → \(config.autoFitEnabled)")
         needsLayout = true
     }
 
@@ -797,11 +804,29 @@ final class WindowManager {
             expelWindowFromColumn(screenIdx: screenIdx)
 
         case .cycleColumnWidth:
-            let ws = screens[screenIdx].activeWorkspace
+            var ws = screens[screenIdx].activeWorkspace
             guard !ws.columns.isEmpty else { return }
             let activeIdx = ws.activeColumnIndex
             let screenWidth = screens[screenIdx].frame.width
-            let currentWidth = screens[screenIdx].activeWorkspace.columns[activeIdx].width
+
+            // Auto-Fit 中に cycle を押した場合、まず現在表示されている幅を全カラムに固定してから
+            // cycle を適用する。これをしないとアクティブ以外のカラムが stale な column.width に戻ってしまう。
+            if config.autoFitEnabled && ws.isAutoFitEligible {
+                let n = ws.columns.count
+                let effectiveWidth = ws.workingArea.width - 2 * config.gapWidth
+                let displayedWidth: CGFloat
+                switch n {
+                case 1: displayedWidth = effectiveWidth * config.autoFitCenterWidthFraction
+                case 2: displayedWidth = (effectiveWidth - config.gapWidth) / 2
+                case 3: displayedWidth = (effectiveWidth - 2 * config.gapWidth) / 3
+                default: displayedWidth = ws.columns[activeIdx].width
+                }
+                for i in 0..<ws.columns.count {
+                    ws.columns[i].width = displayedWidth
+                }
+            }
+
+            let currentWidth = ws.columns[activeIdx].width
             let currentFraction = currentWidth / screenWidth
             let nextPreset: CGFloat
             if currentFraction < 0.4 {
@@ -812,7 +837,12 @@ final class WindowManager {
                 nextPreset = 1.0/3.0
             }
             niriLog("[action] cycleColumnWidth col=\(activeIdx) \(Int(currentWidth))→\(Int(screenWidth * nextPreset))px")
-            screens[screenIdx].activeWorkspace.columns[activeIdx].width = screenWidth * nextPreset
+            ws.columns[activeIdx].width = screenWidth * nextPreset
+            // ユーザーが明示的に幅を操作したので Auto-Fit を解除
+            ws.autoFitOverridden = true
+            // Auto-Fit 中に裏で累積した viewOffset を破棄（stale スクロール防止）
+            ws.viewOffset = .static(offset: 0)
+            screens[screenIdx].activeWorkspace = ws
 
         case .togglePin:
             guard !screens[screenIdx].activeWorkspace.columns.isEmpty else { return }
@@ -840,6 +870,9 @@ final class WindowManager {
             niriLog("[action] shrinkWindowHeight")
             let colIdx = screens[screenIdx].activeWorkspace.activeColumnIndex
             screens[screenIdx].activeWorkspace.columns[colIdx].resizeActiveWindowHeight(delta: -0.10)
+
+        case .toggleAutoFit:
+            toggleAutoFit()
 
         case .quit:
             stop()
@@ -1223,6 +1256,12 @@ final class WindowManager {
 
         // Ctrl のみ + 水平スクロール → レイアウトスクロール
         guard filtered == [.control], abs(deltaX) > 0.5 else { return }
+
+        // Auto-Fit 中はスクロール自体が無意味なので viewOffset を触らない
+        // （触ると解除時に stale オフセットでレイアウトが飛ぶ）
+        if config.autoFitEnabled && screens[screenIdx].activeWorkspace.isAutoFitEligible {
+            return
+        }
 
         let sensitivity = isContinuous ? config.scrollSensitivity : config.mouseWheelScrollSensitivity
         let delta = deltaX * sensitivity

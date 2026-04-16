@@ -30,6 +30,7 @@ final class KeyboardShortcutManager {
         case togglePin
         case moveWindowUpInColumn, moveWindowDownInColumn
         case growWindowHeight, shrinkWindowHeight
+        case toggleAutoFit
         case quit
     }
 
@@ -83,6 +84,8 @@ final class KeyboardShortcutManager {
         // ウィンドウ高さリサイズ (Ctrl+Opt+- / Ctrl+Opt+=)
         Binding(modifiers: [.control, .option], keyCode: 27, action: .shrinkWindowHeight),
         Binding(modifiers: [.control, .option], keyCode: 24, action: .growWindowHeight),
+        // Auto-Fit ON/OFF (Ctrl+Opt+A)
+        Binding(modifiers: [.control, .option], keyCode: 0, action: .toggleAutoFit),
         // 終了
         Binding(modifiers: [.control, .option], keyCode: 12, action: .quit),
     ]

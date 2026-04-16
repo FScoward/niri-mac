@@ -58,6 +58,11 @@ enum LayoutEngine {
         let columns = workspace.columns
         guard !columns.isEmpty else { return results }
 
+        // Auto-Fit: 非pinnedカラム 1〜3 のときスクロール無しで画面を等分/中央配置
+        if config.autoFitEnabled && workspace.isAutoFitEligible {
+            return computeAutoFitFrames(workspace: workspace, config: config)
+        }
+
         let scrollOffset = workspace.viewOffset.current
         let workingArea = workspace.workingArea
         let gap = config.gapWidth
@@ -98,6 +103,73 @@ enum LayoutEngine {
                     x: screenX,
                     y: screenY,
                     width: column.width,
+                    height: winHeight
+                )
+                results.append((windowID, frame))
+            }
+        }
+
+        return results
+    }
+
+    /// Auto-Fit レイアウト: 非pinnedカラム 1〜3 のときスクロール無しで画面を等分/中央配置。
+    /// `workspace.isAutoFitEligible` が true の場合に呼ばれる前提。
+    /// - 1 カラム: `config.autoFitCenterWidthFraction` の幅で中央配置
+    /// - 2 カラム: 左右等分（`(effectiveWidth - gap) / 2`）
+    /// - 3 カラム: 3等分（`(effectiveWidth - 2*gap) / 3`）
+    /// viewOffset は無視される。Column.width は変更しない（復帰時に元幅へ戻る）。
+    static func computeAutoFitFrames(
+        workspace: Workspace,
+        config: LayoutConfig
+    ) -> [(WindowID, CGRect)] {
+        var results: [(WindowID, CGRect)] = []
+
+        let columns = workspace.columns
+        let n = columns.count
+        guard (1...3).contains(n) else { return results }
+
+        let workingArea = workspace.workingArea
+        let gap = config.gapWidth
+        // 両端ギャップを除いた実効幅
+        let effectiveWidth = workingArea.width - 2 * gap
+
+        // カラムごとの幅と左端X座標を決定
+        let colWidth: CGFloat
+        var xs: [CGFloat] = []
+        switch n {
+        case 1:
+            colWidth = effectiveWidth * config.autoFitCenterWidthFraction
+            xs = [workingArea.midX - colWidth / 2]
+        case 2:
+            colWidth = (effectiveWidth - gap) / 2
+            let leftX = workingArea.minX + gap
+            xs = [leftX, leftX + colWidth + gap]
+        case 3:
+            colWidth = (effectiveWidth - 2 * gap) / 3
+            let leftX = workingArea.minX + gap
+            xs = [
+                leftX,
+                leftX + colWidth + gap,
+                leftX + (colWidth + gap) * 2
+            ]
+        default:
+            return results
+        }
+
+        for (colIdx, column) in columns.enumerated() {
+            let heights = distributeColumnHeight(
+                column: column,
+                availableHeight: workingArea.height,
+                gap: config.gapHeight,
+                focusedIndex: column.activeWindowIndex
+            )
+            for (winIdx, windowID) in column.windows.enumerated() {
+                let (winY, winHeight) = heights[winIdx]
+                let screenY = workingArea.minY + winY
+                let frame = CGRect(
+                    x: xs[colIdx],
+                    y: screenY,
+                    width: colWidth,
                     height: winHeight
                 )
                 results.append((windowID, frame))
