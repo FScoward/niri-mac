@@ -198,4 +198,88 @@ struct WorkspaceTests {
         // 挿入後、activeWindowIndex が draggedID（Win 1）を指す
         #expect(ws.columns[0].activeWindowID == 1)
     }
+
+    // MARK: - expelWindow
+
+    @Test func expelWindow_right_insertsAfterSourceColumn() {
+        // Win 2 を col 0 [1,2,3] から抜き出し、col 0 の右（= col 1）に新カラムとして挿入
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [
+            Column(windows: [1, 2, 3], width: 400),
+            Column(windows: [4], width: 400),
+        ]
+        ws.activeColumnIndex = 0
+
+        let result = ws.expelWindow(2, newColumnWidth: 400, insertSide: .right)
+
+        #expect(result == true)
+        #expect(ws.columns.count == 3)
+        #expect(ws.columns[0].windows == [1, 3])
+        #expect(ws.columns[1].windows == [2])
+        #expect(ws.columns[2].windows == [4])
+    }
+
+    @Test func expelWindow_left_insertsBeforeSourceColumn() {
+        // Win 2 を col 0 [1,2,3] から抜き出し、col 0 の左（= col 0）に新カラムとして挿入
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [
+            Column(windows: [1, 2, 3], width: 400),
+            Column(windows: [4], width: 400),
+        ]
+        ws.activeColumnIndex = 0
+
+        let result = ws.expelWindow(2, newColumnWidth: 400, insertSide: .left)
+
+        #expect(result == true)
+        #expect(ws.columns.count == 3)
+        #expect(ws.columns[0].windows == [2])
+        #expect(ws.columns[1].windows == [1, 3])
+        #expect(ws.columns[2].windows == [4])
+    }
+
+    @Test func expelWindow_singleWindowColumn_returnsFalseAndIsNoop() {
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [Column(windows: [1], width: 400)]
+
+        let result = ws.expelWindow(1, newColumnWidth: 400, insertSide: .right)
+
+        #expect(result == false)
+        #expect(ws.columns.count == 1)
+        #expect(ws.columns[0].windows == [1])
+    }
+
+    @Test func expelWindow_windowNotFound_returnsFalseAndIsNoop() {
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [Column(windows: [1, 2], width: 400)]
+
+        let result = ws.expelWindow(99, newColumnWidth: 400, insertSide: .right)
+
+        #expect(result == false)
+        #expect(ws.columns.count == 1)
+        #expect(ws.columns[0].windows == [1, 2])
+    }
+
+    @Test func expelWindow_setsFocusToNewColumn() {
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [
+            Column(windows: [1, 2], width: 400),
+            Column(windows: [3], width: 400),
+        ]
+        ws.activeColumnIndex = 0
+
+        ws.expelWindow(2, newColumnWidth: 400, insertSide: .right)
+
+        // 新カラムが activeColumnIndex で参照できる
+        #expect(ws.activeColumnIndex == 1)
+        #expect(ws.columns[ws.activeColumnIndex].windows == [2])
+    }
+
+    @Test func expelWindow_usesSpecifiedWidth() {
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [Column(windows: [1, 2], width: 400)]
+
+        ws.expelWindow(2, newColumnWidth: 600, insertSide: .right)
+
+        #expect(ws.columns[1].width == 600)
+    }
 }

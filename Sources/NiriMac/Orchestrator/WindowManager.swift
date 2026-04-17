@@ -1126,11 +1126,14 @@ final class WindowManager {
             targetID = windowID; targetFrame = frame; break
         }
 
-        // Priority 2: フレームオーバーラップ最大
+        // Priority 2: フレームオーバーラップ最大（同カラム内ウィンドウは除外）
+        // スタックされたウィンドウは同カラム内で必ずオーバーラップするため、
+        // ここで拾うと expel 分岐に到達できなくなる。
         if targetID == nil, let draggedFrame = axBridge.windowFrame(draggedID) {
             var bestOverlap: CGFloat = 0
             for (windowID, frame) in lastComputedFrames {
-                guard windowID != draggedID else { continue }
+                guard windowID != draggedID,
+                      !isSameColumn(draggedID, windowID) else { continue }
                 let intersection = draggedFrame.intersection(frame)
                 guard !intersection.isNull else { continue }
                 let overlap = intersection.width * intersection.height
@@ -1141,6 +1144,10 @@ final class WindowManager {
         }
 
         guard let target = targetID else {
+            // スタックカラム（2枚以上）からのドラッグをターゲットなし領域にドロップ → expel
+            if tryExpelDraggedWindow(draggedID: draggedID, dropX: point.x, reason: "no-target") {
+                return
+            }
             niriLog("[drag] mouseUp: no target — restoring layout")
             needsLayout = true
             return
@@ -1160,11 +1167,23 @@ final class WindowManager {
         niriLog("[drag] mouseUp: dragged=\(draggedID) target=\(target) zone=\(zone)")
 
         if isSameColumn(draggedID, target) {
-            for i in screens.indices {
-                for j in screens[i].workspaces.indices {
-                    let has1 = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
-                    let has2 = screens[i].workspaces[j].columnIndex(for: target) != nil
-                    if has1 && has2 { screens[i].workspaces[j].swapWindows(draggedID, target); break }
+            // 方向判定: dragged の実位置（AX）と layout 位置の水平差分を測る。
+            // カラム幅の 1/3 を超えたら expel（余白なしでも解除可能）、以下なら swap。
+            let layoutX: CGFloat = lastComputedFrames.first(where: { $0.0 == draggedID })?.1.midX ?? targetFrame.midX
+            let actualX: CGFloat = axBridge.windowFrame(draggedID)?.midX ?? layoutX
+            let horizontalDrift = abs(actualX - layoutX)
+            let expelThreshold = targetFrame.width / 3
+
+            if horizontalDrift > expelThreshold {
+                _ = tryExpelDraggedWindow(draggedID: draggedID, dropX: actualX, reason: "same-col drift=\(Int(horizontalDrift))px")
+            } else {
+                // swap: 同カラム内 reorder
+                for i in screens.indices {
+                    for j in screens[i].workspaces.indices {
+                        let has1 = screens[i].workspaces[j].columnIndex(for: draggedID) != nil
+                        let has2 = screens[i].workspaces[j].columnIndex(for: target) != nil
+                        if has1 && has2 { screens[i].workspaces[j].swapWindows(draggedID, target); break }
+                    }
                 }
             }
         } else {
@@ -1463,6 +1482,37 @@ final class WindowManager {
                 return
             }
         }
+    }
+
+    /// draggedID をスタックカラムから抜き出して新しいカラムとして挿入する共通ヘルパー。
+    /// dropX が元カラム中央より左なら左側、右なら右側に新カラムを挿入する。
+    /// - Returns: expel が発動したら true（カラムが1ウィンドウしかない場合などは false）
+    @discardableResult
+    private func tryExpelDraggedWindow(draggedID: WindowID, dropX: CGFloat, reason: String) -> Bool {
+        for i in screens.indices {
+            for j in screens[i].workspaces.indices {
+                guard let colIdx = screens[i].workspaces[j].columnIndex(for: draggedID) else { continue }
+
+                // 元カラム中央の X を同カラム内ウィンドウのレイアウトフレームから推定
+                let colCenterX: CGFloat = screens[i].workspaces[j].columns[colIdx].windows
+                    .compactMap { wid in self.lastComputedFrames.first(where: { $0.0 == wid })?.1 }
+                    .first.map { $0.midX } ?? dropX
+
+                let side: Workspace.ExpelInsertSide = dropX < colCenterX ? .left : .right
+                let screenWidth = screens[i].frame.width
+                let newColWidth = (windowRegistry[draggedID]?.frame.width ?? 0) > 0
+                    ? windowRegistry[draggedID]!.frame.width
+                    : config.defaultColumnWidth(for: screenWidth)
+
+                if screens[i].workspaces[j].expelWindow(draggedID, newColumnWidth: newColWidth, insertSide: side) {
+                    niriLog("[drag] expel(\(reason)): win=\(draggedID) → \(side == .left ? "left" : "right") of col \(colIdx)")
+                    swapCooldownEnd = Date().addingTimeInterval(0.5)
+                    needsLayout = true
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private func expelWindowFromColumn(screenIdx: Int) {
