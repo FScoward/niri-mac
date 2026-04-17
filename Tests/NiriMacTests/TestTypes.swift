@@ -292,6 +292,34 @@ struct Workspace {
         }
     }
 
+    enum ExpelInsertSide {
+        case left
+        case right
+    }
+
+    @discardableResult
+    mutating func expelWindow(
+        _ windowID: WindowID,
+        newColumnWidth: CGFloat,
+        insertSide: ExpelInsertSide
+    ) -> Bool {
+        guard let srcColIdx = columnIndex(for: windowID),
+              columns[srcColIdx].windows.count > 1
+        else { return false }
+
+        columns[srcColIdx].windows.removeAll { $0 == windowID }
+
+        let insertIdx: Int
+        switch insertSide {
+        case .left:  insertIdx = srcColIdx
+        case .right: insertIdx = srcColIdx + 1
+        }
+
+        let newColumn = Column(windows: [windowID], width: newColumnWidth)
+        addColumn(newColumn, at: insertIdx)
+        return true
+    }
+
     var activeWindowID: WindowID? {
         guard !columns.isEmpty, activeColumnIndex < columns.count else { return nil }
         return columns[activeColumnIndex].activeWindowID

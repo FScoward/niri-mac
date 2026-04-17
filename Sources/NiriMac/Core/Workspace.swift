@@ -264,6 +264,38 @@ struct Workspace {
         }
     }
 
+    /// expelWindow で使う挿入位置
+    enum ExpelInsertSide {
+        case left   // 元カラムの左に新カラム挿入
+        case right  // 元カラムの右に新カラム挿入
+    }
+
+    /// windowID を含むカラムから windowID を抜き出し、新しい1ウィンドウカラムとして挿入する。
+    /// カラムに1ウィンドウしか無い場合、または windowID が見つからない場合は何もせず false を返す。
+    /// 成功時は activeColumnIndex が新カラムを指す。
+    @discardableResult
+    mutating func expelWindow(
+        _ windowID: WindowID,
+        newColumnWidth: CGFloat,
+        insertSide: ExpelInsertSide
+    ) -> Bool {
+        guard let srcColIdx = columnIndex(for: windowID),
+              columns[srcColIdx].windows.count > 1
+        else { return false }
+
+        columns[srcColIdx].removeWindow(windowID)
+
+        let insertIdx: Int
+        switch insertSide {
+        case .left:  insertIdx = srcColIdx
+        case .right: insertIdx = srcColIdx + 1
+        }
+
+        let newColumn = Column(windows: [windowID], width: newColumnWidth)
+        addColumn(newColumn, at: insertIdx)  // addColumn 内で activeColumnIndex = insertIdx
+        return true
+    }
+
     /// ウィンドウIDのカラムインデックスとウィンドウインデックスを返す
     private func findWindowPosition(_ id: WindowID) -> (colIdx: Int, winIdx: Int)? {
         for (colIdx, col) in columns.enumerated() {
