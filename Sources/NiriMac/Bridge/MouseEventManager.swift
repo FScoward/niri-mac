@@ -76,13 +76,13 @@ final class MouseEventManager {
         guard let tap = CGEvent.tapCreate(
             tap: .cghidEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            options: CGEventTapOptions(rawValue: 0)!,
             eventsOfInterest: mask,
             callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
                 guard let refcon = refcon else { return Unmanaged.passRetained(event) }
                 let mgr = Unmanaged<MouseEventManager>.fromOpaque(refcon).takeUnretainedValue()
-                mgr.handleCGEvent(type: type, event: event)
-                return Unmanaged.passRetained(event)
+                let suppress = mgr.handleCGEvent(type: type, event: event)
+                return suppress ? nil : Unmanaged.passRetained(event)
             },
             userInfo: selfPtr
         ) else {
@@ -99,33 +99,30 @@ final class MouseEventManager {
         print("[niri-mac] ✅ MouseEventManager: CGEventTap 有効")
     }
 
-    private func handleCGEvent(type: CGEventType, event: CGEvent) {
+    /// イベントを処理する。戻り値が true のときそのイベントをアプリへ転送しない。
+    @discardableResult
+    private func handleCGEvent(type: CGEventType, event: CGEvent) -> Bool {
         switch type {
         case .leftMouseDown:
             let loc = event.location
-            // CGEvent.location は Quartz座標（左上原点）なのでそのまま渡す
-            DispatchQueue.main.async { [weak self] in
-                self?.onMouseDown?(loc)
-            }
+            DispatchQueue.main.async { [weak self] in self?.onMouseDown?(loc) }
+            return false
 
         case .leftMouseUp:
             let loc = event.location
-            DispatchQueue.main.async { [weak self] in
-                self?.onMouseUp?(loc)
-            }
+            DispatchQueue.main.async { [weak self] in self?.onMouseUp?(loc) }
+            return false
 
         case .leftMouseDragged:
             let now = CFAbsoluteTimeGetCurrent()
-            guard now - lastDragDispatch >= dragDispatchInterval else { return }
+            guard now - lastDragDispatch >= dragDispatchInterval else { return false }
             lastDragDispatch = now
             let loc = event.location
-            DispatchQueue.main.async { [weak self] in
-                self?.onMouseDragged?(loc)
-            }
+            DispatchQueue.main.async { [weak self] in self?.onMouseDragged?(loc) }
+            return false
 
         case .scrollWheel:
             let isContinuous = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
-            // トラックパッド(continuous)はPointDelta、物理ホイール(non-continuous)はDeltaを使う
             let deltaX: Double
             let deltaY: Double
             if isContinuous {
@@ -136,9 +133,8 @@ final class MouseEventManager {
                 deltaY = event.getDoubleValueField(.scrollWheelEventDeltaAxis1)
             }
             mouseLog("[scroll] isContinuous=\(isContinuous) deltaX=\(String(format: "%.3f", deltaX)) deltaY=\(String(format: "%.3f", deltaY))")
-            guard abs(deltaX) > 0.01 || abs(deltaY) > 0.01 else { return }
+            guard abs(deltaX) > 0.01 || abs(deltaY) > 0.01 else { return false }
 
-            // 修飾キーを取得
             let cgFlags = event.flags
             var flags: NSEvent.ModifierFlags = []
             if cgFlags.contains(.maskCommand)   { flags.insert(.command) }
@@ -146,12 +142,18 @@ final class MouseEventManager {
             if cgFlags.contains(.maskShift)     { flags.insert(.shift) }
             if cgFlags.contains(.maskControl)   { flags.insert(.control) }
 
+            // Option のみのスクロールは WM が処理するのでアプリへ転送しない
+            let suppress = cgFlags.contains(.maskAlternate)
+                        && !cgFlags.contains(.maskControl)
+                        && !cgFlags.contains(.maskCommand)
+
             DispatchQueue.main.async { [weak self] in
                 self?.onScroll?(CGFloat(deltaX), CGFloat(deltaY), isContinuous, flags)
             }
+            return suppress
 
         default:
-            break
+            return false
         }
     }
 

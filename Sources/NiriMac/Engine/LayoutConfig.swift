@@ -26,6 +26,9 @@ struct LayoutConfig {
     /// マウスホイール（非トラックパッド）のスクロール感度
     var mouseWheelScrollSensitivity: CGFloat = 20.0
 
+    /// Option + スクロールによるレイアウトスクロールの感度
+    var optionScrollSensitivity: CGFloat = 0.3
+
     func defaultColumnWidth(for screenWidth: CGFloat) -> CGFloat {
         return screenWidth * defaultColumnWidthFraction
     }

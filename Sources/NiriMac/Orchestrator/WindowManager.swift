@@ -1273,17 +1273,27 @@ final class WindowManager {
             return
         }
 
+        // Option + スクロール → レイアウトスクロール（縦横どちらも使える）
+        if filtered == [.option] {
+            let effective = abs(deltaX) >= abs(deltaY) ? deltaX : -deltaY
+            guard abs(effective) > 0.5 else { return }
+            applyLayoutScroll(effectiveDeltaX: effective, sensitivity: config.optionScrollSensitivity, isContinuous: isContinuous, screenIdx: screenIdx)
+            return
+        }
+
         // Ctrl のみ + 水平スクロール → レイアウトスクロール
         guard filtered == [.control], abs(deltaX) > 0.5 else { return }
+        applyLayoutScroll(effectiveDeltaX: deltaX, sensitivity: isContinuous ? config.scrollSensitivity : config.mouseWheelScrollSensitivity, isContinuous: isContinuous, screenIdx: screenIdx)
+    }
 
+    private func applyLayoutScroll(effectiveDeltaX: CGFloat, sensitivity: CGFloat, isContinuous: Bool, screenIdx: Int) {
         // Auto-Fit 中はスクロール自体が無意味なので viewOffset を触らない
         // （触ると解除時に stale オフセットでレイアウトが飛ぶ）
         if config.autoFitEnabled && screens[screenIdx].activeWorkspace.isAutoFitEligible {
             return
         }
 
-        let sensitivity = isContinuous ? config.scrollSensitivity : config.mouseWheelScrollSensitivity
-        let delta = deltaX * sensitivity
+        let delta = effectiveDeltaX * sensitivity
 
         var ws = screens[screenIdx].activeWorkspace
         let current = ws.viewOffset.current
@@ -1293,10 +1303,8 @@ final class WindowManager {
         let newOffset = max(minOffset, min(0, current + delta))
 
         if isContinuous {
-            // トラックパッド: 連続イベントのためアニメーション不要（即時反映で滑らか）
             ws.viewOffset = .static(offset: newOffset)
         } else {
-            // マウスホイール: 離散イベントのためアニメーションで補間
             ws.viewOffset.animateTo(newOffset)
         }
         screens[screenIdx].activeWorkspace = ws
