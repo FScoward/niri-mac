@@ -9,15 +9,15 @@
     <key>CFBundleExecutable</key>
     <string>NiriMac</string>
     <key>CFBundleVersion</key>
-    <string>0.1.3</string>
+    <string>0.1.4</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.3</string>
+    <string>0.1.4</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSUIElement</key>
     <true/>
     <key>BuildDate</key>
-    <string>2026-04-07 19:48:02 (release)</string>
+    <string>2026-04-18 22:37:51 (release)</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>NiriMac needs Accessibility access to manage window positions.</string>
     <key>NSInputMonitoringUsageDescription</key>
