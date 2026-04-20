@@ -934,7 +934,6 @@ final class WindowManager {
         case .reLayout:
             niriLog("[action] reLayout")
             refreshScreenGeometry()
-            needsLayout = true
         }
 
         needsLayout = true
