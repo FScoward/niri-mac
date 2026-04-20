@@ -9,7 +9,7 @@ struct LayoutConfig {
     var gapHeight: CGFloat = 16
 
     /// 作業領域の上端・下端に設ける余白
-    var paddingVertical: CGFloat = 0
+    var paddingVertical: CGFloat = 8
 
     /// 新規ウィンドウのデフォルトカラム幅
     var defaultColumnWidthFraction: CGFloat = 1.0 / 3.0
