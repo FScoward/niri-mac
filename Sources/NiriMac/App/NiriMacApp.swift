@@ -87,6 +87,10 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.focusDimMenuItem = dimItem
         menu.addItem(dimItem)
 
+        let reLayoutItem = NSMenuItem(title: "Re-layout (Ctrl+Opt+Shift+F)", action: #selector(reLayout), keyEquivalent: "")
+        reLayoutItem.target = self
+        menu.addItem(reLayoutItem)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
         statusItem?.menu = menu
@@ -150,6 +154,10 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleFocusDim() {
         windowManager?.toggleFocusDim()
+    }
+
+    @objc private func reLayout() {
+        windowManager?.handleAction(.reLayout)
     }
 
     @objc private func excludeCurrentApp() {
