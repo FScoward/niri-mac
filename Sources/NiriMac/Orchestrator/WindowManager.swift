@@ -141,6 +141,8 @@ final class WindowManager {
         keyboard.stop()
         mouse.stop()
         observer.stopObserving()
+        screenChangeDebounceTimer?.invalidate()
+        screenChangeDebounceTimer = nil
         stopDisplayLink()
     }
 
@@ -331,6 +333,19 @@ final class WindowManager {
         screens[screenIndex].workspaces[screens[screenIndex].activeWorkspaceIndex].addColumn(column)
     }
 
+    private func handleScreenParametersChanged() {
+        screenChangeDebounceTimer?.invalidate()
+        screenChangeDebounceTimer = Timer.scheduledTimer(
+            withTimeInterval: 0.5,
+            repeats: false
+        ) { [weak self] _ in
+            guard let self else { return }
+            niriLog("[screen] screen parameters changed, refreshing layout")
+            self.refreshScreenGeometry()
+            self.needsLayout = true
+        }
+    }
+
     private func setupObserver() {
         observer.onWindowCreated = { [weak self] window in
             self?.handleWindowCreated(window)
@@ -409,6 +424,13 @@ final class WindowManager {
             }
         }
         observer.startObserving()
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScreenParametersChanged()
+        }
     }
 
     private func setupKeyboard() {
@@ -899,7 +921,9 @@ final class WindowManager {
             return
 
         case .reLayout:
-            break
+            niriLog("[action] reLayout")
+            refreshScreenGeometry()
+            needsLayout = true
         }
 
         needsLayout = true
