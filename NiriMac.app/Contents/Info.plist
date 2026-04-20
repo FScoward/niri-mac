@@ -17,7 +17,7 @@
     <key>LSUIElement</key>
     <true/>
     <key>BuildDate</key>
-    <string>2026-04-18 22:37:51 (release)</string>
+    <string>2026-04-20 12:30:46 (debug)</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>NiriMac needs Accessibility access to manage window positions.</string>
     <key>NSInputMonitoringUsageDescription</key>
