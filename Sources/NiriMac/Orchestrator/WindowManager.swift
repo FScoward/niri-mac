@@ -82,6 +82,9 @@ final class WindowManager {
     /// スペース切り替えのデバウンスタイマー
     private var spaceChangedDebounceTimer: Timer? = nil
 
+    /// 画面変更のデバウンスタイマー
+    private var screenChangeDebounceTimer: Timer?
+
     /// macOSスペースごとのビュー状態
     private struct SpaceState {
         var columns: [Column]
@@ -172,6 +175,22 @@ final class WindowManager {
                 visibleFrame: WindowManager.cocoaToQuartz(vf, mainH: mainH2)
             )]
         }
+    }
+
+    private func refreshScreenGeometry() {
+        let mainH = NSScreen.screens.first?.frame.height ?? 0
+        for i in screens.indices {
+            guard let nsScreen = NSScreen.screens.first(where: {
+                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == screens[i].id
+            }) else { continue }
+            let quartzFrame   = WindowManager.cocoaToQuartz(nsScreen.frame, mainH: mainH)
+            let quartzVisible = WindowManager.cocoaToQuartz(nsScreen.visibleFrame, mainH: mainH)
+            screens[i].frame = quartzFrame
+            for j in screens[i].workspaces.indices {
+                screens[i].workspaces[j].workingArea = quartzVisible
+            }
+        }
+        niriLog("[screen] geometry refreshed: \(screens.map { "id=\($0.id) size=\($0.frame.size)" }.joined(separator: ", "))")
     }
 
     /// Cocoa の CGRect → Quartz の CGRect に変換（メインスクリーン高さを基準）
