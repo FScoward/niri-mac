@@ -85,6 +85,9 @@ final class WindowManager {
     /// 画面変更のデバウンスタイマー
     private var screenChangeDebounceTimer: Timer?
 
+    /// didChangeScreenParametersNotification のオブザーバートークン
+    private var screenParametersObserver: NSObjectProtocol?
+
     /// macOSスペースごとのビュー状態
     private struct SpaceState {
         var columns: [Column]
@@ -143,6 +146,14 @@ final class WindowManager {
         observer.stopObserving()
         screenChangeDebounceTimer?.invalidate()
         screenChangeDebounceTimer = nil
+        if let obs = screenParametersObserver {
+            NotificationCenter.default.removeObserver(obs)
+            screenParametersObserver = nil
+        }
+        appActivatedDebounceTimer?.invalidate()
+        appActivatedDebounceTimer = nil
+        spaceChangedDebounceTimer?.invalidate()
+        spaceChangedDebounceTimer = nil
         stopDisplayLink()
     }
 
@@ -424,7 +435,7 @@ final class WindowManager {
             }
         }
         observer.startObserving()
-        NotificationCenter.default.addObserver(
+        screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
