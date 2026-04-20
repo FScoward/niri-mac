@@ -347,6 +347,7 @@ struct Workspace {
 struct LayoutConfig {
     var gapWidth: CGFloat = 16
     var gapHeight: CGFloat = 16
+    var paddingVertical: CGFloat = 0
     var defaultColumnWidthFraction: CGFloat = 1.0 / 3.0
     var animationDuration: CFTimeInterval = 0.25
     var autoFitEnabled: Bool = true
@@ -426,16 +427,17 @@ enum LayoutEngine {
             let colX = xs[colIdx] + scrollOffset
             let screenX = workingArea.minX + config.gapWidth + colX
 
+            let availableHeight = workingArea.height - 2 * config.paddingVertical
             let heights = distributeColumnHeight(
                 column: column,
-                availableHeight: workingArea.height,
+                availableHeight: availableHeight,
                 gap: config.gapHeight,
                 focusedIndex: column.activeWindowIndex
             )
 
             for (winIdx, windowID) in column.windows.enumerated() {
                 let (winY, winHeight) = heights[winIdx]
-                let screenY = workingArea.minY + winY
+                let screenY = workingArea.minY + config.paddingVertical + winY
                 let frame = CGRect(x: screenX, y: screenY, width: column.width, height: winHeight)
                 results.append((windowID, frame))
             }
@@ -473,15 +475,16 @@ enum LayoutEngine {
         }
 
         for (colIdx, column) in columns.enumerated() {
+            let availableHeight = workingArea.height - 2 * config.paddingVertical
             let heights = distributeColumnHeight(
                 column: column,
-                availableHeight: workingArea.height,
+                availableHeight: availableHeight,
                 gap: config.gapHeight,
                 focusedIndex: column.activeWindowIndex
             )
             for (winIdx, windowID) in column.windows.enumerated() {
                 let (winY, winHeight) = heights[winIdx]
-                let screenY = workingArea.minY + winY
+                let screenY = workingArea.minY + config.paddingVertical + winY
                 let frame = CGRect(x: xs[colIdx], y: screenY, width: colWidth, height: winHeight)
                 results.append((windowID, frame))
             }

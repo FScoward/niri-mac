@@ -312,4 +312,97 @@ struct LayoutEngineTests {
         let frame = CGRect(x: 1440, y: 0, width: 400, height: 900)
         #expect(LayoutEngine.isWindowOffScreen(frame, workingArea: workingArea))
     }
+
+    // MARK: - Vertical Padding
+
+    @Test func verticalPaddingShiftsWindowY() {
+        // Given: paddingVertical = 20 の config、高さ900の作業領域
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [Column(windows: [1], width: 400)]
+        ws.activeColumnIndex = 0
+        ws.autoFitOverridden = true
+
+        var config = LayoutConfig()
+        config.paddingVertical = 20
+
+        let frames = LayoutEngine.computeWindowFrames(
+            workspace: ws,
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            config: config
+        )
+
+        #expect(frames.count == 1)
+        // Y は workingArea.minY + paddingVertical = 0 + 20 = 20 から始まる
+        #expect(abs(frames[0].1.origin.y - 20) < 0.5)
+        // 高さは availableHeight - 2*padding = 900 - 40 = 860
+        #expect(abs(frames[0].1.height - 860) < 0.5)
+    }
+
+    @Test func verticalPaddingZeroIsUnchanged() {
+        // paddingVertical = 0 (デフォルト) は従来動作と同一
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [Column(windows: [1], width: 400)]
+        ws.activeColumnIndex = 0
+        ws.autoFitOverridden = true
+
+        var config = LayoutConfig()
+        config.paddingVertical = 0
+
+        let frames = LayoutEngine.computeWindowFrames(
+            workspace: ws,
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            config: config
+        )
+
+        #expect(frames.count == 1)
+        #expect(abs(frames[0].1.origin.y - 0) < 0.5)
+        #expect(abs(frames[0].1.height - 900) < 0.5)
+    }
+
+    @Test func verticalPaddingAutoFit() {
+        // Auto-Fit パスでも paddingVertical が効く
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [Column(windows: [1], width: 400)]
+        ws.activeColumnIndex = 0
+        // autoFitOverridden = false → Auto-Fit パス
+
+        var config = LayoutConfig()
+        config.paddingVertical = 30
+
+        let frames = LayoutEngine.computeWindowFrames(
+            workspace: ws,
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            config: config
+        )
+
+        #expect(frames.count == 1)
+        #expect(abs(frames[0].1.origin.y - 30) < 0.5)
+        #expect(abs(frames[0].1.height - 840) < 0.5)  // 900 - 60
+    }
+
+    @Test func verticalPaddingMultiWindowColumn() {
+        // 複数ウィンドウのカラムでも Y オフセットが正しい
+        var ws = Workspace(workingArea: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        ws.columns = [Column(windows: [1, 2], width: 400)]
+        ws.activeColumnIndex = 0
+        ws.autoFitOverridden = true
+
+        var config = LayoutConfig()
+        config.paddingVertical = 10
+        config.gapHeight = 16
+
+        let frames = LayoutEngine.computeWindowFrames(
+            workspace: ws,
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            config: config
+        )
+
+        #expect(frames.count == 2)
+        // 最初のウィンドウの Y = workingArea.minY + paddingVertical = 10
+        #expect(abs(frames[0].1.origin.y - 10) < 0.5)
+        // availableHeight = 900 - 20 = 880, gap=16 → totalHeight=864, 各=432
+        #expect(abs(frames[0].1.height - 432) < 0.5)
+        // 2つ目の Y = 10 + 432 + 16 = 458
+        #expect(abs(frames[1].1.origin.y - 458) < 0.5)
+    }
 }

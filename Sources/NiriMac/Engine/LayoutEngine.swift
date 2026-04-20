@@ -87,17 +87,17 @@ enum LayoutEngine {
                 nonPinnedXCursor += column.width + gap
             }
 
+            let availableHeight = workingArea.height - 2 * config.paddingVertical
             let heights = distributeColumnHeight(
                 column: column,
-                availableHeight: workingArea.height,
+                availableHeight: availableHeight,
                 gap: config.gapHeight,
                 focusedIndex: column.activeWindowIndex
             )
 
             for (winIdx, windowID) in column.windows.enumerated() {
                 let (winY, winHeight) = heights[winIdx]
-                // Quartz: Y軸は下向きなので上端 = workingArea.minY + winY
-                let screenY = workingArea.minY + winY
+                let screenY = workingArea.minY + config.paddingVertical + winY
 
                 let frame = CGRect(
                     x: screenX,
@@ -157,15 +157,16 @@ enum LayoutEngine {
         }
 
         for (colIdx, column) in columns.enumerated() {
+            let availableHeight = workingArea.height - 2 * config.paddingVertical
             let heights = distributeColumnHeight(
                 column: column,
-                availableHeight: workingArea.height,
+                availableHeight: availableHeight,
                 gap: config.gapHeight,
                 focusedIndex: column.activeWindowIndex
             )
             for (winIdx, windowID) in column.windows.enumerated() {
                 let (winY, winHeight) = heights[winIdx]
-                let screenY = workingArea.minY + winY
+                let screenY = workingArea.minY + config.paddingVertical + winY
                 let frame = CGRect(
                     x: xs[colIdx],
                     y: screenY,
