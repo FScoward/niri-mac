@@ -878,6 +878,9 @@ final class WindowManager {
             stop()
             NSApplication.shared.terminate(nil)
             return
+
+        case .reLayout:
+            break
         }
 
         needsLayout = true

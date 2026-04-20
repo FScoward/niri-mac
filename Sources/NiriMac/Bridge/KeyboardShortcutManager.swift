@@ -32,6 +32,7 @@ final class KeyboardShortcutManager {
         case growWindowHeight, shrinkWindowHeight
         case toggleAutoFit
         case quit
+        case reLayout
     }
 
     struct Binding {
@@ -88,6 +89,8 @@ final class KeyboardShortcutManager {
         Binding(modifiers: [.control, .option], keyCode: 0, action: .toggleAutoFit),
         // 終了
         Binding(modifiers: [.control, .option], keyCode: 12, action: .quit),
+        // Re-layout (Ctrl+Opt+Shift+F)
+        Binding(modifiers: [.control, .option, .shift], keyCode: 3, action: .reLayout),
     ]
 
     static func checkInputMonitoringPermission() -> Bool {
