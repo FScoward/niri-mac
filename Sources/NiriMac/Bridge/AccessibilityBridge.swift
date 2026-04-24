@@ -50,6 +50,7 @@ final class AccessibilityBridge: AccessibilityBridgeProtocol {
                 else { continue }
 
                 windows.append(info)
+                AXUIElementSetMessagingTimeout(axWindow, 0.5)
                 elementCache[info.id] = axWindow
             }
         }
@@ -117,6 +118,9 @@ final class AccessibilityBridge: AccessibilityBridgeProtocol {
 
     /// AXUIElement を elementCache に登録
     func registerElement(_ element: AXUIElement, for id: WindowID) {
+        // AXUIElementSetAttributeValue がメインスレッドをブロックする時間を制限する。
+        // デフォルト(~6秒)のままだと tapDisabledByTimeout が発生してクリックが届かなくなる。
+        AXUIElementSetMessagingTimeout(element, 0.5)
         elementCache[id] = element
     }
 
