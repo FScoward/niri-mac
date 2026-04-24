@@ -339,4 +339,26 @@ struct Workspace {
             }
         }
     }
+
+    // MARK: - Scroll
+
+    /// スクロール delta を viewOffset に適用する。
+    /// - deltaX: 正 = 右スワイプ（macOS ナチュラルスクロール）→ viewOffset を負方向へ
+    /// - sensitivity: 感度係数
+    /// - isContinuous: true = トラックパッド（static 更新）、false = マウスホイール（アニメーション）
+    mutating func applyScrollDelta(deltaX: CGFloat, sensitivity: CGFloat, isContinuous: Bool, gap: CGFloat = 16) {
+        let delta = -deltaX * sensitivity   // 右スワイプ(+) → オフセット負方向
+
+        let current = viewOffset.current
+        let xs = columnXPositions(gap: gap)
+        let lastX = (xs.last ?? 0) + (columns.last?.width ?? 0)
+        let minOffset = min(0, workingArea.width - gap - lastX)
+        let newOffset = max(minOffset, min(0, current + delta))
+
+        if isContinuous {
+            viewOffset = .static(offset: newOffset)
+        } else {
+            viewOffset.animateTo(newOffset)
+        }
+    }
 }
