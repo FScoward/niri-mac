@@ -102,6 +102,17 @@ final class MouseEventManager {
     /// イベントを処理する。戻り値が true のときそのイベントをアプリへ転送しない。
     @discardableResult
     private func handleCGEvent(type: CGEventType, event: CGEvent) -> Bool {
+        // システムがタップを無効化した時は即再有効化する。
+        // 放置すると Option+スクロール等が永続的に効かなくなる。
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            let reason = type == .tapDisabledByTimeout ? "timeout" : "userInput"
+            mouseLog("[tap] ⚠️ mouse tap disabled by \(reason) — re-enabling")
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            return false
+        }
+
         switch type {
         case .leftMouseDown:
             let loc = event.location

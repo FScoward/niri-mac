@@ -143,11 +143,20 @@ final class KeyboardShortcutManager {
             place: .headInsertEventTap,
             options: .listenOnly,
             eventsOfInterest: eventMask,
-            callback: { _, _, event, refcon -> Unmanaged<CGEvent>? in
+            callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
                 guard let refcon = refcon else {
                     return Unmanaged.passRetained(event)
                 }
                 let manager = Unmanaged<KeyboardShortcutManager>.fromOpaque(refcon).takeUnretainedValue()
+                // システムがタップを無効化した時は即再有効化する（放置するとキーショートカットが永続的に効かなくなる）
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    let reason = type == .tapDisabledByTimeout ? "timeout" : "userInput"
+                    kbLog("[tap] ⚠️ keyboard tap disabled by \(reason) — re-enabling")
+                    if let tap = manager.eventTap {
+                        CGEvent.tapEnable(tap: tap, enable: true)
+                    }
+                    return Unmanaged.passRetained(event)
+                }
                 manager.handleCGEvent(event)
                 return Unmanaged.passRetained(event)
             },
