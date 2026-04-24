@@ -1344,25 +1344,12 @@ final class WindowManager {
 
     private func applyLayoutScroll(effectiveDeltaX: CGFloat, sensitivity: CGFloat, isContinuous: Bool, screenIdx: Int) {
         // Auto-Fit 中はスクロール自体が無意味なので viewOffset を触らない
-        // （触ると解除時に stale オフセットでレイアウトが飛ぶ）
         if config.autoFitEnabled && screens[screenIdx].activeWorkspace.isAutoFitEligible {
             return
         }
 
-        let delta = effectiveDeltaX * sensitivity
-
         var ws = screens[screenIdx].activeWorkspace
-        let current = ws.viewOffset.current
-        let xs = ws.columnXPositions(gap: config.gapWidth)
-        let lastX = (xs.last ?? 0) + (ws.columns.last?.width ?? 0)
-        let minOffset = min(0, ws.workingArea.width - config.gapWidth - lastX)
-        let newOffset = max(minOffset, min(0, current + delta))
-
-        if isContinuous {
-            ws.viewOffset = .static(offset: newOffset)
-        } else {
-            ws.viewOffset.animateTo(newOffset)
-        }
+        ws.applyScrollDelta(deltaX: effectiveDeltaX, sensitivity: sensitivity, isContinuous: isContinuous, gap: config.gapWidth)
         screens[screenIdx].activeWorkspace = ws
         needsLayout = true
     }
