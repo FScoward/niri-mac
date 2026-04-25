@@ -56,42 +56,52 @@ final class KeyboardShortcutManager {
     private static let kReturn: UInt16 = 36
     private static let kQ:      UInt16 = 12
 
-    private let bindings: [Binding] = [
-        // カラム間フォーカス (Ctrl+Opt+Arrow: iTerm2/macOS両方と競合しにくい)
-        Binding(modifiers: [.control, .option], keyCode: 123, action: .focusLeft),
-        Binding(modifiers: [.control, .option], keyCode: 124, action: .focusRight),
-        // カラム内ウィンドウ
-        Binding(modifiers: [.control, .option], keyCode: 126, action: .focusUp),
-        Binding(modifiers: [.control, .option], keyCode: 125, action: .focusDown),
-        // カラム並べ替え
-        Binding(modifiers: [.control, .option, .shift], keyCode: 123, action: .moveColumnLeft),
-        Binding(modifiers: [.control, .option, .shift], keyCode: 124, action: .moveColumnRight),
-        // ワークスペース切り替え
-        Binding(modifiers: [.control, .option, .command], keyCode: 126, action: .switchWorkspaceUp),
-        Binding(modifiers: [.control, .option, .command], keyCode: 125, action: .switchWorkspaceDown),
-        // ウィンドウをワークスペース移動
-        Binding(modifiers: [.control, .option, .command, .shift], keyCode: 126, action: .moveWindowToWorkspaceUp),
-        Binding(modifiers: [.control, .option, .command, .shift], keyCode: 125, action: .moveWindowToWorkspaceDown),
-        // カラム操作
-        Binding(modifiers: [.control, .option], keyCode: 36, action: .consumeIntoColumnLeft),
-        Binding(modifiers: [.control, .option, .shift], keyCode: 36, action: .expelFromColumn),
-        // カラム幅サイクル
-        Binding(modifiers: [.control, .option], keyCode: 15, action: .cycleColumnWidth),
-        // カラムpin切り替え (Ctrl+Opt+P)
-        Binding(modifiers: [.control, .option], keyCode: 35, action: .togglePin),
-        // カラム内ウィンドウ並び替え (Ctrl+Opt+Shift+↑/↓)
-        Binding(modifiers: [.control, .option, .shift], keyCode: 126, action: .moveWindowUpInColumn),
-        Binding(modifiers: [.control, .option, .shift], keyCode: 125, action: .moveWindowDownInColumn),
-        // ウィンドウ高さリサイズ (Ctrl+Opt+- / Ctrl+Opt+=)
-        Binding(modifiers: [.control, .option], keyCode: 27, action: .shrinkWindowHeight),
-        Binding(modifiers: [.control, .option], keyCode: 24, action: .growWindowHeight),
-        // Auto-Fit ON/OFF (Ctrl+Opt+A)
-        Binding(modifiers: [.control, .option], keyCode: 0, action: .toggleAutoFit),
-        // 終了
-        Binding(modifiers: [.control, .option], keyCode: 12, action: .quit),
-        // Re-layout (Ctrl+Opt+Shift+F)
-        Binding(modifiers: [.control, .option, .shift], keyCode: 3, action: .reLayout),
-    ]
+    private let bindings: [Binding]
+
+    init(metaModifiers: NSEvent.ModifierFlags = [.control, .option]) {
+        self.bindings = KeyboardShortcutManager.buildBindings(meta: metaModifiers)
+    }
+
+    static func buildBindings(meta: NSEvent.ModifierFlags) -> [Binding] {
+        let metaShift    = meta.union([.shift])
+        let metaCmd      = meta.union([.command])
+        let metaCmdShift = meta.union([.command, .shift])
+        return [
+            // カラム間フォーカス
+            Binding(modifiers: meta,         keyCode: 123, action: .focusLeft),
+            Binding(modifiers: meta,         keyCode: 124, action: .focusRight),
+            // カラム内ウィンドウ
+            Binding(modifiers: meta,         keyCode: 126, action: .focusUp),
+            Binding(modifiers: meta,         keyCode: 125, action: .focusDown),
+            // カラム並べ替え
+            Binding(modifiers: metaShift,    keyCode: 123, action: .moveColumnLeft),
+            Binding(modifiers: metaShift,    keyCode: 124, action: .moveColumnRight),
+            // ワークスペース切り替え
+            Binding(modifiers: metaCmd,      keyCode: 126, action: .switchWorkspaceUp),
+            Binding(modifiers: metaCmd,      keyCode: 125, action: .switchWorkspaceDown),
+            // ウィンドウをワークスペース移動
+            Binding(modifiers: metaCmdShift, keyCode: 126, action: .moveWindowToWorkspaceUp),
+            Binding(modifiers: metaCmdShift, keyCode: 125, action: .moveWindowToWorkspaceDown),
+            // カラム操作
+            Binding(modifiers: meta,         keyCode: 36,  action: .consumeIntoColumnLeft),
+            Binding(modifiers: metaShift,    keyCode: 36,  action: .expelFromColumn),
+            // カラム幅・pin
+            Binding(modifiers: meta,         keyCode: 15,  action: .cycleColumnWidth),
+            Binding(modifiers: meta,         keyCode: 35,  action: .togglePin),
+            // カラム内ウィンドウ並び替え
+            Binding(modifiers: metaShift,    keyCode: 126, action: .moveWindowUpInColumn),
+            Binding(modifiers: metaShift,    keyCode: 125, action: .moveWindowDownInColumn),
+            // ウィンドウ高さリサイズ
+            Binding(modifiers: meta,         keyCode: 27,  action: .shrinkWindowHeight),
+            Binding(modifiers: meta,         keyCode: 24,  action: .growWindowHeight),
+            // Auto-Fit
+            Binding(modifiers: meta,         keyCode: 0,   action: .toggleAutoFit),
+            // 終了
+            Binding(modifiers: meta,         keyCode: 12,  action: .quit),
+            // Re-layout
+            Binding(modifiers: metaShift,    keyCode: 3,   action: .reLayout),
+        ]
+    }
 
     static func checkInputMonitoringPermission() -> Bool {
         return IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted

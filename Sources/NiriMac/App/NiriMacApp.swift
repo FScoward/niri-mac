@@ -11,12 +11,15 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var focusDimMenuItem: NSMenuItem?
     private var autoFitMenuItem: NSMenuItem?
     private var excludedAppsMenuItem: NSMenuItem?
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         printDiagnostics()
         setupStatusBar()
 
-        let config = LayoutConfig()
+        let stored = ConfigStore.load()
+        var config = LayoutConfig()
+        config.metaModifiers = stored.meta
+        config.scrollLayoutModifiers = stored.scrollLayout
+        config.scrollFocusModifiers = stored.scrollFocus
         windowManager = WindowManager(config: config)
         windowManager?.start()
     }
@@ -92,8 +95,17 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(reLayoutItem)
 
         menu.addItem(NSMenuItem.separator())
+        let settingsItem = NSMenuItem(title: "Modifier Settings...", action: #selector(showModifierSettings), keyEquivalent: "")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
         statusItem?.menu = menu
+    }
+
+    @objc private func showModifierSettings() {
+        ModifierSettingsWindowController.show()
     }
 
     /// メニューが開く直前にアクティブカラムの pin 状態を記録してタイトルを更新する
