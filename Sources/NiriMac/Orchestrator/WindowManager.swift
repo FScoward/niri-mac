@@ -101,9 +101,10 @@ final class WindowManager {
     init(config: LayoutConfig = LayoutConfig()) {
         self.axBridge = AccessibilityBridge()
         self.observer = AXObserverBridge()
-        self.keyboard = KeyboardShortcutManager()
+        self.keyboard = KeyboardShortcutManager(metaModifiers: config.metaModifiers)
         self.mouse = MouseEventManager()
         self.config = config
+        self.mouse.scrollLayoutModifiers = config.scrollLayoutModifiers
     }
 
     // MARK: - Startup
@@ -1312,10 +1313,10 @@ final class WindowManager {
         let screenIdx = activeScreenIndex()
         guard screenIdx < screens.count else { return }
 
-        let filtered = flags.intersection([.control, .option])
+        let filtered = flags.intersection([.command, .control, .option, .shift])
 
-        // Ctrl+Opt+スクロール → カラムフォーカス移動
-        if filtered == [.control, .option] {
+        // scrollFocusModifiers+スクロール → カラムフォーカス移動
+        if filtered == config.scrollFocusModifiers {
             let now = Date()
             guard now.timeIntervalSince(lastScrollFocusTime) >= scrollFocusCooldown else { return }
             lastScrollFocusTime = now
@@ -1329,8 +1330,8 @@ final class WindowManager {
             return
         }
 
-        // Option + スクロール → レイアウトスクロール（縦横どちらも使える）
-        if filtered == [.option] {
+        // scrollLayoutModifiers + スクロール → レイアウトスクロール（縦横どちらも使える）
+        if filtered == config.scrollLayoutModifiers {
             let effective = abs(deltaX) >= abs(deltaY) ? deltaX : -deltaY
             guard abs(effective) > 0.5 else { return }
             applyLayoutScroll(effectiveDeltaX: effective, sensitivity: config.optionScrollSensitivity, isContinuous: isContinuous, screenIdx: screenIdx)
