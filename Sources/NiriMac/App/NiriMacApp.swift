@@ -185,12 +185,10 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.addButton(withTitle: "キャンセル")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let bundlePath = Bundle.main.bundlePath
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-            let task = Process()
-            task.launchPath = "/usr/bin/open"
-            task.arguments = [bundlePath]
-            try? task.run()
-        }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 0.5; exec /usr/bin/open \"$1\"", "sh", bundlePath]
+        try? task.run()
         NSApplication.shared.terminate(nil)
     }
 
