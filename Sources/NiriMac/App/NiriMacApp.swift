@@ -14,7 +14,6 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pendingMeta: NSEvent.ModifierFlags = [.control, .option]
     private var pendingScrollLayout: NSEvent.ModifierFlags = [.option]
     private var pendingScrollFocus: NSEvent.ModifierFlags = [.control, .option]
-    private var modifierChangePending = false
     private var restartMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -156,7 +155,7 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if pendingMeta.contains(flag) { pendingMeta.remove(flag) } else { pendingMeta.insert(flag) }
             if pendingMeta.isEmpty { pendingMeta.insert(flag); return }
             sender.state = pendingMeta.contains(flag) ? .on : .off
-            if pendingMeta.contains(.command) {
+            if flag == .command && pendingMeta.contains(.command) {
                 let alert = NSAlert()
                 alert.messageText = "⚠️ Command をメタキーに含めると\nワークスペース操作が機能しなくなります"
                 alert.alertStyle = .warning
@@ -176,7 +175,6 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         ConfigStore.save(meta: pendingMeta, scrollLayout: pendingScrollLayout, scrollFocus: pendingScrollFocus)
-        modifierChangePending = true
         restartMenuItem?.isEnabled = true
     }
 
@@ -187,10 +185,12 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.addButton(withTitle: "キャンセル")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let bundlePath = Bundle.main.bundlePath
-        let task = Process()
-        task.launchPath = "/bin/sh"
-        task.arguments = ["-c", "sleep 0.5; open '\(bundlePath)'"]
-        try? task.run()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+            let task = Process()
+            task.launchPath = "/usr/bin/open"
+            task.arguments = [bundlePath]
+            try? task.run()
+        }
         NSApplication.shared.terminate(nil)
     }
 
