@@ -26,7 +26,7 @@ final class ModifierSettingsWindowController: NSWindowController {
         )
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 100),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 420),
             styleMask: [.titled, .closable, .utilityWindow],
             backing: .buffered,
             defer: false
