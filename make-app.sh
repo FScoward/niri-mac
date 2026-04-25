@@ -17,12 +17,17 @@ BINARY=".build/$CONFIG/NiriMac"
 APP="NiriMac.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
+RESOURCES="$CONTENTS/Resources"
 
 echo "[niri-mac] Creating .app bundle..."
 rm -rf "$APP"
-mkdir -p "$MACOS"
+mkdir -p "$MACOS" "$RESOURCES"
 
 cp "$BINARY" "$MACOS/NiriMac"
+
+if [[ -f "NiriMac.icns" ]]; then
+    cp "NiriMac.icns" "$RESOURCES/NiriMac.icns"
+fi
 
 BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S')
 
@@ -51,6 +56,8 @@ cat > "$CONTENTS/Info.plist" << EOF
     <string>NiriMac needs Accessibility access to manage window positions.</string>
     <key>NSInputMonitoringUsageDescription</key>
     <string>NiriMac needs Input Monitoring access to capture keyboard shortcuts.</string>
+    <key>CFBundleIconFile</key>
+    <string>NiriMac</string>
 </dict>
 </plist>
 EOF
