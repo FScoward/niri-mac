@@ -66,4 +66,15 @@ struct LayoutConfig {
 
     /// Auto-Fit で 1 カラム時のセンタリング幅（作業領域実効幅に対する比率）
     var autoFitCenterWidthFraction: CGFloat = 2.0 / 3.0
+
+    // MARK: - Modifier Keys
+
+    /// キーボードショートカットのベース修飾キー
+    var metaModifiers: NSEvent.ModifierFlags = [.control, .option]
+
+    /// レイアウトスクロールのトリガー修飾キー
+    var scrollLayoutModifiers: NSEvent.ModifierFlags = [.option]
+
+    /// カラムフォーカス移動スクロールのトリガー修飾キー
+    var scrollFocusModifiers: NSEvent.ModifierFlags = [.control, .option]
 }
