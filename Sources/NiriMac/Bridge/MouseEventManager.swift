@@ -37,6 +37,9 @@ final class MouseEventManager {
     /// Cmd+Tab 等でアプリが切り替わった時
     var onAppActivated: (() -> Void)?
 
+    /// レイアウトスクロールをトリガーする修飾キー（一致したスクロールはアプリに転送しない）
+    var scrollLayoutModifiers: NSEvent.ModifierFlags = [.option]
+
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var appSwitchObserver: Any?
@@ -153,10 +156,8 @@ final class MouseEventManager {
             if cgFlags.contains(.maskShift)     { flags.insert(.shift) }
             if cgFlags.contains(.maskControl)   { flags.insert(.control) }
 
-            // Option のみのスクロールは WM が処理するのでアプリへ転送しない
-            let suppress = cgFlags.contains(.maskAlternate)
-                        && !cgFlags.contains(.maskControl)
-                        && !cgFlags.contains(.maskCommand)
+            // scrollLayoutModifiers と一致するスクロールは WM が処理するのでアプリへ転送しない
+            let suppress = cgFlagsMatchModifiers(cgFlags, required: scrollLayoutModifiers)
 
             DispatchQueue.main.async { [weak self] in
                 self?.onScroll?(CGFloat(deltaX), CGFloat(deltaY), isContinuous, flags)
@@ -166,6 +167,17 @@ final class MouseEventManager {
         default:
             return false
         }
+    }
+
+    private func cgFlagsMatchModifiers(_ cgFlags: CGEventFlags, required: NSEvent.ModifierFlags) -> Bool {
+        var flags: NSEvent.ModifierFlags = []
+        if cgFlags.contains(.maskCommand)   { flags.insert(.command) }
+        if cgFlags.contains(.maskAlternate) { flags.insert(.option) }
+        if cgFlags.contains(.maskShift)     { flags.insert(.shift) }
+        if cgFlags.contains(.maskControl)   { flags.insert(.control) }
+        let filtered = flags.intersection([.command, .control, .option, .shift])
+        let requiredFiltered = required.intersection([.command, .control, .option, .shift])
+        return filtered == requiredFiltered
     }
 
     // MARK: - アプリ切り替え監視
