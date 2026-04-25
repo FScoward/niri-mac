@@ -11,12 +11,26 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var focusDimMenuItem: NSMenuItem?
     private var autoFitMenuItem: NSMenuItem?
     private var excludedAppsMenuItem: NSMenuItem?
+    private var pendingMeta: NSEvent.ModifierFlags = [.control, .option]
+    private var pendingScrollLayout: NSEvent.ModifierFlags = [.option]
+    private var pendingScrollFocus: NSEvent.ModifierFlags = [.control, .option]
+    private var modifierChangePending = false
+    private var restartMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         printDiagnostics()
+
+        let stored = ConfigStore.load()
+        pendingMeta = stored.meta
+        pendingScrollLayout = stored.scrollLayout
+        pendingScrollFocus = stored.scrollFocus
+
         setupStatusBar()
 
-        let config = LayoutConfig()
+        var config = LayoutConfig()
+        config.metaModifiers = stored.meta
+        config.scrollLayoutModifiers = stored.scrollLayout
+        config.scrollFocusModifiers = stored.scrollFocus
         windowManager = WindowManager(config: config)
         windowManager?.start()
     }
@@ -92,8 +106,92 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(reLayoutItem)
 
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(makeModifierSubmenu(title: "Keyboard Meta", current: pendingMeta, tag: 1))
+        menu.addItem(makeModifierSubmenu(title: "Scroll: Layout", current: pendingScrollLayout, tag: 2))
+        menu.addItem(makeModifierSubmenu(title: "Scroll: Focus", current: pendingScrollFocus, tag: 3))
+
+        let restartItem = NSMenuItem(title: "Restart to Apply...", action: #selector(restartToApply), keyEquivalent: "")
+        restartItem.target = self
+        restartItem.isEnabled = false
+        self.restartMenuItem = restartItem
+        menu.addItem(restartItem)
+
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
         statusItem?.menu = menu
+    }
+
+    private func makeModifierSubmenu(title: String, current: NSEvent.ModifierFlags, tag: Int) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let pairs: [(String, NSEvent.ModifierFlags)] = [
+            ("Control (⌃)", .control),
+            ("Option (⌥)",  .option),
+            ("Command (⌘)", .command),
+            ("Shift (⇧)",   .shift),
+        ]
+        for (i, (label, flag)) in pairs.enumerated() {
+            let mi = NSMenuItem(title: label, action: #selector(toggleModifier(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.state = current.contains(flag) ? .on : .off
+            mi.tag = tag * 10 + i
+            submenu.addItem(mi)
+        }
+        submenu.addItem(NSMenuItem.separator())
+        submenu.addItem(NSMenuItem(title: "(再起動後に反映)", action: nil, keyEquivalent: ""))
+        item.submenu = submenu
+        return item
+    }
+
+    private static let modifierFlagList: [NSEvent.ModifierFlags] = [.control, .option, .command, .shift]
+
+    @objc private func toggleModifier(_ sender: NSMenuItem) {
+        let group = sender.tag / 10
+        let flagIndex = sender.tag % 10
+        guard flagIndex < NiriMacApp.modifierFlagList.count else { return }
+        let flag = NiriMacApp.modifierFlagList[flagIndex]
+
+        switch group {
+        case 1:
+            if pendingMeta.contains(flag) { pendingMeta.remove(flag) } else { pendingMeta.insert(flag) }
+            if pendingMeta.isEmpty { pendingMeta.insert(flag); return }
+            sender.state = pendingMeta.contains(flag) ? .on : .off
+            if pendingMeta.contains(.command) {
+                let alert = NSAlert()
+                alert.messageText = "⚠️ Command をメタキーに含めると\nワークスペース操作が機能しなくなります"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        case 2:
+            if pendingScrollLayout.contains(flag) { pendingScrollLayout.remove(flag) } else { pendingScrollLayout.insert(flag) }
+            if pendingScrollLayout.isEmpty { pendingScrollLayout.insert(flag); return }
+            sender.state = pendingScrollLayout.contains(flag) ? .on : .off
+        case 3:
+            if pendingScrollFocus.contains(flag) { pendingScrollFocus.remove(flag) } else { pendingScrollFocus.insert(flag) }
+            if pendingScrollFocus.isEmpty { pendingScrollFocus.insert(flag); return }
+            sender.state = pendingScrollFocus.contains(flag) ? .on : .off
+        default:
+            return
+        }
+
+        ConfigStore.save(meta: pendingMeta, scrollLayout: pendingScrollLayout, scrollFocus: pendingScrollFocus)
+        modifierChangePending = true
+        restartMenuItem?.isEnabled = true
+    }
+
+    @objc private func restartToApply() {
+        let alert = NSAlert()
+        alert.messageText = "再起動して設定変更を適用しますか？"
+        alert.addButton(withTitle: "再起動")
+        alert.addButton(withTitle: "キャンセル")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let bundlePath = Bundle.main.bundlePath
+        let task = Process()
+        task.launchPath = "/bin/sh"
+        task.arguments = ["-c", "sleep 0.5; open '\(bundlePath)'"]
+        try? task.run()
+        NSApplication.shared.terminate(nil)
     }
 
     /// メニューが開く直前にアクティブカラムの pin 状態を記録してタイトルを更新する
