@@ -38,7 +38,7 @@ final class MouseEventManager {
     var onAppActivated: (() -> Void)?
 
     /// レイアウトスクロールをトリガーする修飾キー（一致したスクロールはアプリに転送しない）
-    var scrollLayoutModifiers: NSEvent.ModifierFlags = [.option]
+    var scrollLayoutModifiers: NSEvent.ModifierFlags = [.control]
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?

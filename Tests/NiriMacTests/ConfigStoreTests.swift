@@ -16,7 +16,7 @@ struct ConfigStoreTests {
         let url = makeTempURL()
         let result = ConfigStore.load(from: url)
         #expect(result.meta == [.control, .option])
-        #expect(result.scrollLayout == [.option])
+        #expect(result.scrollLayout == [.control])
         #expect(result.scrollFocus == [.control, .option])
     }
 

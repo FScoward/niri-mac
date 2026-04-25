@@ -20,7 +20,7 @@ enum ConfigStore {
         else {
             return Config(
                 meta: [.control, .option],
-                scrollLayout: [.option],
+                scrollLayout: [.control],
                 scrollFocus: [.control, .option]
             )
         }

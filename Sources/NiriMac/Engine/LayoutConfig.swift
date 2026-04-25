@@ -73,7 +73,7 @@ struct LayoutConfig {
     var metaModifiers: NSEvent.ModifierFlags = [.control, .option]
 
     /// レイアウトスクロールのトリガー修飾キー
-    var scrollLayoutModifiers: NSEvent.ModifierFlags = [.option]
+    var scrollLayoutModifiers: NSEvent.ModifierFlags = [.control]
 
     /// カラムフォーカス移動スクロールのトリガー修飾キー
     var scrollFocusModifiers: NSEvent.ModifierFlags = [.control, .option]
