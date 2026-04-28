@@ -365,6 +365,9 @@ final class WindowManager {
         observer.onWindowDestroyed = { [weak self] id in
             self?.handleWindowDestroyed(id)
         }
+        observer.onWindowGhostSweepNeeded = { [weak self] in
+            self?.ghostSweep()
+        }
         observer.onApplicationTerminated = { [weak self] pid in
             self?.handleApplicationTerminated(pid: pid)
         }
@@ -579,7 +582,8 @@ final class WindowManager {
         windowRegistry[window.id] = window
         axBridge.registerElement(window.axElement, for: window.id)
         // ウィンドウ要素に破棄通知を個別登録（appElement への登録では発火しないため）
-        observer.registerWindowDestroyedNotification(for: window.axElement, pid: window.ownerPID)
+        // window.id を直接渡すことで _AXUIElementGetWindow の失敗による登録漏れを防ぐ
+        observer.registerWindowDestroyedNotification(for: window.axElement, pid: window.ownerPID, knownWindowID: window.id)
 
         // screen.frame も Quartz 座標なのでそのまま比較
         guard !screens.isEmpty else { return }
@@ -657,6 +661,18 @@ final class WindowManager {
         // アプリ終了時に該当PIDのウィンドウを全て除去
         let toRemove = windowRegistry.values.filter { $0.ownerPID == pid }.map { $0.id }
         for id in toRemove {
+            handleWindowDestroyed(id)
+        }
+    }
+
+    /// ゾンビウィンドウ検出: elementWindowMap ミスで破棄通知のIDが取れなかった場合に呼ばれる。
+    /// CGWindowListCopyWindowInfo で実在するウィンドウIDと照合し、消えたIDを除去する。
+    private func ghostSweep() {
+        guard let list = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return }
+        let liveIDs = Set(list.compactMap { $0[kCGWindowNumber as String] as? CGWindowID })
+        let deadIDs = windowRegistry.keys.filter { !liveIDs.contains($0) }
+        for id in deadIDs {
+            niriLog("[ghost-sweep] zombie window removed: \(id)")
             handleWindowDestroyed(id)
         }
     }

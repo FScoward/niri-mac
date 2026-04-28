@@ -10,6 +10,8 @@ final class AXObserverBridge {
     var onApplicationLaunched: ((pid_t) -> Void)?
     var onApplicationTerminated: ((pid_t) -> Void)?
     var onSpaceChanged: (() -> Void)?
+    /// elementWindowMap ミス + 要素破棄済みで windowID が取れなかった場合に発火
+    var onWindowGhostSweepNeeded: (() -> Void)?
 
     private var observers: [pid_t: AXObserver] = [:]
     private var notificationCenter = NotificationCenter.default
@@ -103,10 +105,16 @@ final class AXObserverBridge {
     }
 
     /// 新規ウィンドウの破棄通知をウィンドウ要素に登録する（handleWindowCreated から呼ぶ）
-    func registerWindowDestroyedNotification(for windowElement: AXUIElement, pid: pid_t) {
+    /// knownWindowID を渡すと _AXUIElementGetWindow に依存せずマッピングを確実に保存できる
+    func registerWindowDestroyedNotification(for windowElement: AXUIElement, pid: pid_t, knownWindowID: WindowID? = nil) {
         guard let obs = observers[pid] else { return }
         let selfPtr = Unmanaged.passRetained(self).toOpaque()
-        addDestroyedNotification(obs: obs, windowElement: windowElement, selfPtr: selfPtr)
+        if let windowID = knownWindowID {
+            elementWindowMap[CFHash(windowElement)] = windowID
+            AXObserverAddNotification(obs, windowElement, kAXUIElementDestroyedNotification as CFString, selfPtr)
+        } else {
+            addDestroyedNotification(obs: obs, windowElement: windowElement, selfPtr: selfPtr)
+        }
     }
 
     /// 破棄通知の登録と elementWindowMap への事前保存を行う
@@ -174,6 +182,11 @@ final class AXObserverBridge {
                 if _AXUIElementGetWindow(element, &windowID) == .success {
                     DispatchQueue.main.async { [weak self] in
                         self?.onWindowDestroyed?(windowID)
+                    }
+                } else {
+                    // 要素が破棄済みで ID が取れない場合: ゾンビウィンドウ検出スイープを要求
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onWindowGhostSweepNeeded?()
                     }
                 }
             }
