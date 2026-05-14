@@ -729,12 +729,8 @@ final class WindowManager {
             handleWindowDestroyed(id)
         }
 
-        // 除外アプリのウィンドウを最前面に浮かせる
-        let allWindows = axBridge.allWindows()
-        for window in allWindows where window.ownerBundleID == bundleID {
-            setWindowLevel(window.id, level: Int32(NSWindow.Level.floating.rawValue))
-            niriLog("[float] excluded app raised: win=\(window.id) bundle=\(bundleID)")
-        }
+        // 除外アプリのウィンドウを最前面に上げる
+        raiseExcludedWindows()
     }
 
     /// アプリを除外リストから削除する
@@ -757,13 +753,25 @@ final class WindowManager {
         }
     }
 
-    /// 起動時: 設定済み除外アプリのウィンドウレベルを最前面に設定する
+    /// 起動時: 設定済み除外アプリのウィンドウを最前面に上げる
     private func applyExcludedWindowLevels() {
         guard !config.excludedBundleIDs.isEmpty else { return }
-        let allWindows = axBridge.allWindows()
-        for window in allWindows where isExcluded(window) {
-            setWindowLevel(window.id, level: Int32(NSWindow.Level.floating.rawValue))
-            niriLog("[float] startup: excluded app raised: win=\(window.id) bundle=\(window.ownerBundleID ?? "?")")
+        raiseExcludedWindows()
+    }
+
+    /// 除外アプリのウィンドウを AX RaiseAction で最前面に上げる（クロスプロセス対応）
+    func raiseExcludedWindows() {
+        guard !config.excludedBundleIDs.isEmpty else { return }
+        for bundleID in config.excludedBundleIDs {
+            guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else { continue }
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            var windowList: AnyObject?
+            guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowList) == .success,
+                  let axWindows = windowList as? [AXUIElement] else { continue }
+            for axWindow in axWindows {
+                AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+                niriLog("[float] AXRaise: bundle=\(bundleID)")
+            }
         }
     }
 
@@ -1117,6 +1125,10 @@ final class WindowManager {
               let windowID = screens[screenIdx].activeWorkspace.activeWindowID
         else { return }
         try? axBridge.focusWindow(windowID)
+        // タイリングウィンドウ前面化後に除外アプリを再度前面へ
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.raiseExcludedWindows()
+        }
     }
 
     /// AX フォーカス + カーソルをウィンドウ中央にワープ（キーボード操作専用）
@@ -1127,6 +1139,10 @@ final class WindowManager {
         else { return }
 
         try? axBridge.focusWindow(windowID)
+        // app.activate() 完了後に除外アプリを最前面へ（50ms 待機）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.raiseExcludedWindows()
+        }
 
         guard config.warpMouseToFocus else { return }
 
@@ -1399,6 +1415,10 @@ final class WindowManager {
         let center = CGPoint(x: quartzFrame.midX, y: quartzFrame.midY)
         // Cmd+Tab等のアプリ切り替えではフォーカスのみ更新し、viewOffsetは変えない
         handleMouseFocus(at: center, updateViewOffset: false)
+        // タイリングアプリへの切り替え後、除外アプリを再前面化
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.raiseExcludedWindows()
+        }
     }
 
     // MARK: - Helpers
