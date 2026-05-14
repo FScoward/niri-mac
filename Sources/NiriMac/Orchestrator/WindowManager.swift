@@ -129,6 +129,7 @@ final class WindowManager {
 
         setupScreens()
         discoverExistingWindows()
+        applyExcludedWindowLevels()
         lastKnownSpaceID = spaceBridge.currentSpaceID()
         niriLog("[space-sync] initial spaceID=\(lastKnownSpaceID.map { String($0) } ?? "nil")")
         setupObserver()
@@ -727,6 +728,13 @@ final class WindowManager {
         for id in toRemove {
             handleWindowDestroyed(id)
         }
+
+        // 除外アプリのウィンドウを最前面に浮かせる
+        let allWindows = axBridge.allWindows()
+        for window in allWindows where window.ownerBundleID == bundleID {
+            setWindowLevel(window.id, level: Int32(NSWindow.Level.floating.rawValue))
+            niriLog("[float] excluded app raised: win=\(window.id) bundle=\(bundleID)")
+        }
     }
 
     /// アプリを除外リストから削除する
@@ -736,11 +744,32 @@ final class WindowManager {
         ExclusionStore.save(config.excludedBundleIDs)
         niriLog("[exclusion] included '\(bundleID)'")
 
+        // 除外解除されたウィンドウのレベルを通常に戻す
+        let allWindows = axBridge.allWindows()
+        for window in allWindows where window.ownerBundleID == bundleID {
+            setWindowLevel(window.id, level: Int32(NSWindow.Level.normal.rawValue))
+            niriLog("[float] included app lowered: win=\(window.id) bundle=\(bundleID)")
+        }
+
         // 既に起動中のウィンドウを即座にタイリングへ復帰させる
-        let windows = axBridge.allWindows().filter { $0.ownerBundleID == bundleID }
-        for window in windows {
+        for window in allWindows where window.ownerBundleID == bundleID {
             handleWindowCreated(window)
         }
+    }
+
+    /// 起動時: 設定済み除外アプリのウィンドウレベルを最前面に設定する
+    private func applyExcludedWindowLevels() {
+        guard !config.excludedBundleIDs.isEmpty else { return }
+        let allWindows = axBridge.allWindows()
+        for window in allWindows where isExcluded(window) {
+            setWindowLevel(window.id, level: Int32(NSWindow.Level.floating.rawValue))
+            niriLog("[float] startup: excluded app raised: win=\(window.id) bundle=\(window.ownerBundleID ?? "?")")
+        }
+    }
+
+    private func setWindowLevel(_ windowID: WindowID, level: Int32) {
+        let cid = CGSMainConnectionID()
+        _ = CGSSetWindowLevel(cid, windowID, level)
     }
 
     // MARK: - Focus Highlight Toggles

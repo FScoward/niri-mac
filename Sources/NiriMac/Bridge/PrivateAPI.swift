@@ -33,3 +33,7 @@ func CGSCopyManagedDisplaySpaces(_ cid: UInt32) -> CFArray
 
 let kCGSAllSpacesMask: UInt32 = 0x0F
 let kCGSCurrentSpaceMask: UInt32 = 0x01
+
+/// ウィンドウのレベル（常に最前面等）を設定する
+@_silgen_name("CGSSetWindowLevel")
+func CGSSetWindowLevel(_ cid: UInt32, _ wid: CGWindowID, _ level: Int32) -> CGError
