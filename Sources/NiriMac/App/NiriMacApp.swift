@@ -7,6 +7,7 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pinMenuItem: NSMenuItem?
     /// menuWillOpen 時点のカラムインデックスを保持（クリック後のフォーカス変化対策）
     private var pinnedTargetColumnIndex: Int?
+    private var floatMenuItem: NSMenuItem?
     private var focusBorderMenuItem: NSMenuItem?
     private var focusDimMenuItem: NSMenuItem?
     private var autoFitMenuItem: NSMenuItem?
@@ -62,11 +63,16 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pinItem.target = self
         self.pinMenuItem = pinItem
 
+        let floatItem = NSMenuItem(title: "Float Window", action: #selector(toggleFloat), keyEquivalent: "")
+        floatItem.target = self
+        self.floatMenuItem = floatItem
+
         let menu = NSMenu()
         menu.delegate = self
         menu.addItem(NSMenuItem(title: "niri-mac", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(pinItem)
+        menu.addItem(floatItem)
         menu.addItem(NSMenuItem.separator())
 
         let excludedAppsItem = NSMenuItem(title: "Excluded Apps", action: nil, keyEquivalent: "")
@@ -114,6 +120,19 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pinnedTargetColumnIndex = windowManager?.activeColumnIndex
         let isPinned = windowManager?.activeColumnIsPinned ?? false
         pinMenuItem?.title = isPinned ? "Unpin Column" : "Pin Column"
+
+        // Float: 現在のフロントアプリが excluded（= float）かどうか
+        if let bundleID = windowManager?.focusedAppBundleID {
+            let isFloat = windowManager?.excludedApps.contains(where: { $0.bundleID == bundleID }) ?? false
+            floatMenuItem?.title = isFloat ? "Unfloat Window" : "Float Window"
+            floatMenuItem?.state = isFloat ? .on : .off
+            floatMenuItem?.isEnabled = true
+        } else {
+            floatMenuItem?.title = "Float Window"
+            floatMenuItem?.state = .off
+            floatMenuItem?.isEnabled = false
+        }
+
         autoFitMenuItem?.state = windowManager?.autoFitEnabled == true ? .on : .off
         focusBorderMenuItem?.state = windowManager?.focusBorderEnabled == true ? .on : .off
         focusDimMenuItem?.state = windowManager?.focusDimEnabled == true ? .on : .off
@@ -154,6 +173,16 @@ final class NiriMacApp: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func togglePin() {
         windowManager?.handleAction(.togglePin, forColumnIndex: pinnedTargetColumnIndex)
+    }
+
+    @objc private func toggleFloat() {
+        guard let bundleID = windowManager?.focusedAppBundleID else { return }
+        let isFloat = windowManager?.excludedApps.contains(where: { $0.bundleID == bundleID }) ?? false
+        if isFloat {
+            windowManager?.includeApp(bundleID: bundleID)
+        } else {
+            windowManager?.excludeApp(bundleID: bundleID)
+        }
     }
 
     @objc private func toggleAutoFit() {

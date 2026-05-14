@@ -82,6 +82,9 @@ final class WindowManager {
     /// スペース切り替えのデバウンスタイマー
     private var spaceChangedDebounceTimer: Timer? = nil
 
+    /// float ウィンドウ（excluded app）を最前面に保持する繰り返しタイマー
+    private var floatRaiseTimer: Timer?
+
     /// 画面変更のデバウンスタイマー
     private var screenChangeDebounceTimer: Timer?
 
@@ -129,6 +132,7 @@ final class WindowManager {
 
         setupScreens()
         discoverExistingWindows()
+        applyExcludedWindowLevels()
         lastKnownSpaceID = spaceBridge.currentSpaceID()
         niriLog("[space-sync] initial spaceID=\(lastKnownSpaceID.map { String($0) } ?? "nil")")
         setupObserver()
@@ -155,6 +159,8 @@ final class WindowManager {
         appActivatedDebounceTimer = nil
         spaceChangedDebounceTimer?.invalidate()
         spaceChangedDebounceTimer = nil
+        floatRaiseTimer?.invalidate()
+        floatRaiseTimer = nil
         stopDisplayLink()
     }
 
@@ -743,6 +749,10 @@ final class WindowManager {
         for id in toRemove {
             handleWindowDestroyed(id)
         }
+
+        // 除外アプリのウィンドウを最前面に上げて、タイマーで維持
+        raiseExcludedWindows()
+        startFloatRaiseTimer()
     }
 
     /// アプリを除外リストから削除する
@@ -752,11 +762,57 @@ final class WindowManager {
         ExclusionStore.save(config.excludedBundleIDs)
         niriLog("[exclusion] included '\(bundleID)'")
 
+        // 除外アプリがゼロになったらタイマーを停止
+        if config.excludedBundleIDs.isEmpty {
+            stopFloatRaiseTimer()
+        }
+
         // 既に起動中のウィンドウを即座にタイリングへ復帰させる
-        let windows = axBridge.allWindows().filter { $0.ownerBundleID == bundleID }
-        for window in windows {
+        let allWindows = axBridge.allWindows()
+        for window in allWindows where window.ownerBundleID == bundleID {
             handleWindowCreated(window)
         }
+    }
+
+    /// 起動時: 設定済み除外アプリのウィンドウを最前面に上げてタイマー開始
+    private func applyExcludedWindowLevels() {
+        guard !config.excludedBundleIDs.isEmpty else { return }
+        raiseExcludedWindows()
+        startFloatRaiseTimer()
+    }
+
+    /// 除外アプリのウィンドウを AX RaiseAction で最前面に上げる（クロスプロセス対応）
+    func raiseExcludedWindows() {
+        guard !config.excludedBundleIDs.isEmpty else { return }
+        for bundleID in config.excludedBundleIDs {
+            guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else { continue }
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            var windowList: AnyObject?
+            guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowList) == .success,
+                  let axWindows = windowList as? [AXUIElement] else { continue }
+            for axWindow in axWindows {
+                AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+            }
+        }
+    }
+
+    /// float ウィンドウを常に最前面に保つ 100ms タイマーを開始
+    private func startFloatRaiseTimer() {
+        floatRaiseTimer?.invalidate()
+        floatRaiseTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.raiseExcludedWindows()
+        }
+    }
+
+    /// float タイマーを停止（除外アプリがゼロになった時）
+    private func stopFloatRaiseTimer() {
+        floatRaiseTimer?.invalidate()
+        floatRaiseTimer = nil
+    }
+
+    private func setWindowLevel(_ windowID: WindowID, level: Int32) {
+        let cid = CGSMainConnectionID()
+        _ = CGSSetWindowLevel(cid, windowID, level)
     }
 
     // MARK: - Focus Highlight Toggles
@@ -1104,6 +1160,10 @@ final class WindowManager {
               let windowID = screens[screenIdx].activeWorkspace.activeWindowID
         else { return }
         try? axBridge.focusWindow(windowID)
+        // タイリングウィンドウ前面化後に除外アプリを再度前面へ
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.raiseExcludedWindows()
+        }
     }
 
     /// AX フォーカス + カーソルをウィンドウ中央にワープ（キーボード操作専用）
@@ -1114,6 +1174,10 @@ final class WindowManager {
         else { return }
 
         try? axBridge.focusWindow(windowID)
+        // app.activate() 完了後に除外アプリを最前面へ（50ms 待機）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.raiseExcludedWindows()
+        }
 
         guard config.warpMouseToFocus else { return }
 
@@ -1386,6 +1450,10 @@ final class WindowManager {
         let center = CGPoint(x: quartzFrame.midX, y: quartzFrame.midY)
         // Cmd+Tab等のアプリ切り替えではフォーカスのみ更新し、viewOffsetは変えない
         handleMouseFocus(at: center, updateViewOffset: false)
+        // タイリングアプリへの切り替え後、除外アプリを再前面化
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.raiseExcludedWindows()
+        }
     }
 
     // MARK: - Helpers
