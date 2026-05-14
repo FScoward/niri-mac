@@ -31,6 +31,7 @@ final class KeyboardShortcutManager {
         case moveWindowUpInColumn, moveWindowDownInColumn
         case growWindowHeight, shrinkWindowHeight
         case toggleAutoFit
+        case toggleFloat
         case quit
         case reLayout
     }
@@ -96,6 +97,8 @@ final class KeyboardShortcutManager {
             Binding(modifiers: meta,         keyCode: 24,  action: .growWindowHeight),
             // Auto-Fit
             Binding(modifiers: meta,         keyCode: 0,   action: .toggleAutoFit),
+            // Float Window (Ctrl+Opt+F)
+            Binding(modifiers: meta,         keyCode: 3,   action: .toggleFloat),
             // 終了
             Binding(modifiers: meta,         keyCode: 12,  action: .quit),
             // Re-layout

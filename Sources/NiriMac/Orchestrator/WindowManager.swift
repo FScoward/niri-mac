@@ -44,6 +44,9 @@ final class WindowManager {
     /// park済みウィンドウのキャッシュ（毎フレームのSpaceAPI呼び出しを防ぐ）
     private var parkedWindowIDs: Set<WindowID> = []
 
+    /// float状態のウィンドウ（タイリング除外・常に最前面）
+    private var floatWindowIDs: Set<WindowID> = []
+
     /// 前回のfrontmostApplication PID（setWindowFrame由来の誤発火を防ぐ）
     private var lastFrontmostPID: pid_t = 0
 
@@ -632,6 +635,7 @@ final class WindowManager {
         windowRegistry.removeValue(forKey: id)
         axBridge.removeElement(for: id)
         parkedWindowIDs.remove(id)
+        floatWindowIDs.remove(id)
 
         // ドラッグ状態をクリア（③）
         if mouseDownWindowID == id { mouseDownWindowID = nil }
@@ -763,6 +767,71 @@ final class WindowManager {
         config.autoFitEnabled.toggle()
         niriLog("[action] toggleAutoFit → \(config.autoFitEnabled)")
         needsLayout = true
+    }
+
+    // MARK: - Float Window
+
+    /// メニューバー用: 現在最前面のウィンドウが float 状態かを返す
+    var frontWindowIsFloat: Bool {
+        if let (fwID, _) = frontmostWindowIDAndFrame() {
+            return floatWindowIDs.contains(fwID)
+        }
+        let idx = activeScreenIndex()
+        guard idx < screens.count,
+              let windowID = screens[idx].activeWorkspace.activeWindowID else { return false }
+        return floatWindowIDs.contains(windowID)
+    }
+
+    /// メニューバー用: 最前面ウィンドウの float を切り替える
+    func toggleFloatFromMenu() {
+        let screenIdx = activeScreenIndex()
+        guard screenIdx < screens.count else { return }
+        toggleFloatWindow(screenIdx: screenIdx)
+    }
+
+    private func toggleFloatWindow(screenIdx: Int) {
+        // float中のウィンドウはlayoutから除外済みなので frontmostWindowIDAndFrame で判定
+        let targetID: WindowID?
+        if let (fwID, _) = frontmostWindowIDAndFrame(), floatWindowIDs.contains(fwID) {
+            targetID = fwID
+        } else {
+            targetID = screens[screenIdx].activeWorkspace.activeWindowID
+        }
+        guard let windowID = targetID else { return }
+
+        if floatWindowIDs.contains(windowID) {
+            // Float OFF: タイリングに復帰
+            floatWindowIDs.remove(windowID)
+            setWindowLevel(windowID, level: Int32(NSWindow.Level.normal.rawValue))
+            if windowRegistry[windowID] != nil {
+                let screenWidth = screens[screenIdx].frame.width
+                let colWidth = (windowRegistry[windowID]!.frame.width > 0)
+                    ? windowRegistry[windowID]!.frame.width
+                    : config.defaultColumnWidth(for: screenWidth)
+                let col = Column(windows: [windowID], width: colWidth)
+                screens[screenIdx].activeWorkspace.addColumn(col)
+                screens[screenIdx].activeWorkspace.recenterViewOffset(gap: config.gapWidth)
+            }
+            niriLog("[float] float OFF: win=\(windowID)")
+        } else {
+            // Float ON: タイリングから除外してウィンドウレベルを浮かせる
+            floatWindowIDs.insert(windowID)
+            parkedWindowIDs.remove(windowID)
+            setWindowLevel(windowID, level: Int32(NSWindow.Level.floating.rawValue))
+            for i in screens.indices {
+                for j in screens[i].workspaces.indices {
+                    screens[i].workspaces[j].removeWindow(windowID)
+                }
+            }
+            screens[screenIdx].activeWorkspace.recenterViewOffset(gap: config.gapWidth)
+            niriLog("[float] float ON: win=\(windowID)")
+        }
+        needsLayout = true
+    }
+
+    private func setWindowLevel(_ windowID: WindowID, level: Int32) {
+        let cid = CGSMainConnectionID()
+        _ = CGSSetWindowLevel(cid, windowID, level)
     }
 
     func handleAction(_ action: KeyboardShortcutManager.Action) {
@@ -926,6 +995,10 @@ final class WindowManager {
 
         case .toggleAutoFit:
             toggleAutoFit()
+
+        case .toggleFloat:
+            toggleFloatWindow(screenIdx: screenIdx)
+            return
 
         case .quit:
             stop()
