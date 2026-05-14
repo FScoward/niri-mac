@@ -82,6 +82,9 @@ final class WindowManager {
     /// スペース切り替えのデバウンスタイマー
     private var spaceChangedDebounceTimer: Timer? = nil
 
+    /// float ウィンドウ（excluded app）を最前面に保持する繰り返しタイマー
+    private var floatRaiseTimer: Timer?
+
     /// 画面変更のデバウンスタイマー
     private var screenChangeDebounceTimer: Timer?
 
@@ -156,6 +159,8 @@ final class WindowManager {
         appActivatedDebounceTimer = nil
         spaceChangedDebounceTimer?.invalidate()
         spaceChangedDebounceTimer = nil
+        floatRaiseTimer?.invalidate()
+        floatRaiseTimer = nil
         stopDisplayLink()
     }
 
@@ -729,8 +734,9 @@ final class WindowManager {
             handleWindowDestroyed(id)
         }
 
-        // 除外アプリのウィンドウを最前面に上げる
+        // 除外アプリのウィンドウを最前面に上げて、タイマーで維持
         raiseExcludedWindows()
+        startFloatRaiseTimer()
     }
 
     /// アプリを除外リストから削除する
@@ -740,23 +746,23 @@ final class WindowManager {
         ExclusionStore.save(config.excludedBundleIDs)
         niriLog("[exclusion] included '\(bundleID)'")
 
-        // 除外解除されたウィンドウのレベルを通常に戻す
-        let allWindows = axBridge.allWindows()
-        for window in allWindows where window.ownerBundleID == bundleID {
-            setWindowLevel(window.id, level: Int32(NSWindow.Level.normal.rawValue))
-            niriLog("[float] included app lowered: win=\(window.id) bundle=\(bundleID)")
+        // 除外アプリがゼロになったらタイマーを停止
+        if config.excludedBundleIDs.isEmpty {
+            stopFloatRaiseTimer()
         }
 
         // 既に起動中のウィンドウを即座にタイリングへ復帰させる
+        let allWindows = axBridge.allWindows()
         for window in allWindows where window.ownerBundleID == bundleID {
             handleWindowCreated(window)
         }
     }
 
-    /// 起動時: 設定済み除外アプリのウィンドウを最前面に上げる
+    /// 起動時: 設定済み除外アプリのウィンドウを最前面に上げてタイマー開始
     private func applyExcludedWindowLevels() {
         guard !config.excludedBundleIDs.isEmpty else { return }
         raiseExcludedWindows()
+        startFloatRaiseTimer()
     }
 
     /// 除外アプリのウィンドウを AX RaiseAction で最前面に上げる（クロスプロセス対応）
@@ -770,9 +776,22 @@ final class WindowManager {
                   let axWindows = windowList as? [AXUIElement] else { continue }
             for axWindow in axWindows {
                 AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
-                niriLog("[float] AXRaise: bundle=\(bundleID)")
             }
         }
+    }
+
+    /// float ウィンドウを常に最前面に保つ 100ms タイマーを開始
+    private func startFloatRaiseTimer() {
+        floatRaiseTimer?.invalidate()
+        floatRaiseTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.raiseExcludedWindows()
+        }
+    }
+
+    /// float タイマーを停止（除外アプリがゼロになった時）
+    private func stopFloatRaiseTimer() {
+        floatRaiseTimer?.invalidate()
+        floatRaiseTimer = nil
     }
 
     private func setWindowLevel(_ windowID: WindowID, level: Int32) {
