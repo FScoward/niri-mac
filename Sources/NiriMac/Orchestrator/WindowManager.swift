@@ -36,6 +36,7 @@ final class WindowManager {
     private var config: LayoutConfig
     private let focusOverlayManager = FocusOverlayManager()
     private let dropTargetOverlay = DropTargetOverlayManager()
+    private let centerFloatOverlay = CenterFloatOverlayManager()
     private let spaceBridge = SpaceBridge()
 
     private var displayLink: CVDisplayLink?
@@ -78,6 +79,13 @@ final class WindowManager {
 
     /// センターフロート中のウィンドウID（タイルレイアウトをバイパスして画面中央に配置）
     private var centeredWindowID: WindowID? = nil
+
+    /// センターフロートのフライインアニメーション中フラグ（displayLinkTick で毎フレーム applyLayout を呼ぶ）
+    private var centerFloatIsAnimating: Bool = false
+    /// フライインアニメーション開始時刻（CACurrentMediaTime）
+    private var centerFloatAnimStartTime: Double = 0
+    /// フライインアニメーション開始時のフレーム（タイル位置）
+    private var centerFloatAnimFromFrame: CGRect? = nil
 
     /// 最後に検知したスペースID（同一スペースの重複処理を防ぐ）
     private var lastKnownSpaceID: UInt64? = nil
@@ -145,6 +153,7 @@ final class WindowManager {
 
     func stop() {
         focusOverlayManager.removeAll()
+        centerFloatOverlay.removeAll()
         keyboard.stop()
         mouse.stop()
         observer.stopObserving()
@@ -208,6 +217,15 @@ final class WindowManager {
             }
         }
         niriLog("[screen] geometry refreshed: \(screens.map { "id=\($0.id) size=\($0.frame.size)" }.joined(separator: ", "))")
+    }
+
+    private func lerpRect(_ a: CGRect, _ b: CGRect, _ t: CGFloat) -> CGRect {
+        CGRect(
+            x: a.origin.x + (b.origin.x - a.origin.x) * t,
+            y: a.origin.y + (b.origin.y - a.origin.y) * t,
+            width: a.width + (b.width - a.width) * t,
+            height: a.height + (b.height - a.height) * t
+        )
     }
 
     /// Cocoa の CGRect → Quartz の CGRect に変換（メインスクリーン高さを基準）
@@ -545,7 +563,7 @@ final class WindowManager {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            var hasAnimation = false
+            var hasAnimation = self.centerFloatIsAnimating
             for screen in self.screens {
                 if case .animating = screen.activeWorkspace.viewOffset {
                     hasAnimation = true
@@ -643,7 +661,11 @@ final class WindowManager {
         // ドラッグ・センターフロート状態をクリア（③）
         if mouseDownWindowID == id { mouseDownWindowID = nil }
         if draggedWindowID == id { draggedWindowID = nil }
-        if centeredWindowID == id { centeredWindowID = nil }
+        if centeredWindowID == id {
+            centeredWindowID = nil
+            centerFloatAnimFromFrame = nil
+            centerFloatIsAnimating = false
+        }
 
         for i in screens.indices {
             for j in screens[i].workspaces.indices {
@@ -832,14 +854,14 @@ final class WindowManager {
 
         case .switchWorkspaceUp:
             niriLog("[action] switchWorkspaceUp → ws=\(screens[screenIdx].activeWorkspaceIndex)")
-            centeredWindowID = nil
+            centeredWindowID = nil; centerFloatAnimFromFrame = nil; centerFloatIsAnimating = false
             screens[screenIdx].switchToPreviousWorkspace()
             needsLayout = true
             focusAfterLayout = true  // applyLayout 完了後にフォーカス（レイアウト前に呼ぶとマウスが画面外へ飛ぶ）
             return
 
         case .switchWorkspaceDown:
-            centeredWindowID = nil
+            centeredWindowID = nil; centerFloatAnimFromFrame = nil; centerFloatIsAnimating = false
             // 動的ワークスペース: 末尾に達したら新規作成
             if screens[screenIdx].activeWorkspaceIndex >= screens[screenIdx].workspaces.count - 1 {
                 // visibleFrame を Quartz 変換して渡す
@@ -957,8 +979,13 @@ final class WindowManager {
             if centeredWindowID == activeID {
                 niriLog("[action] toggleCenterFloat OFF win=\(activeID)")
                 centeredWindowID = nil
+                centerFloatAnimFromFrame = nil
+                centerFloatIsAnimating = false
             } else {
                 niriLog("[action] toggleCenterFloat ON win=\(activeID)")
+                centerFloatAnimFromFrame = lastComputedFrames.first(where: { $0.0 == activeID })?.1
+                centerFloatAnimStartTime = CACurrentMediaTime()
+                centerFloatIsAnimating = centerFloatAnimFromFrame != nil
                 centeredWindowID = activeID
             }
 
@@ -996,14 +1023,28 @@ final class WindowManager {
             for (windowID, tilingFrame) in tilingFrames {
                 let effectiveFrame: CGRect
                 if windowID == centeredWindowID {
-                    let cw = workingArea.width * 0.7
-                    let ch = workingArea.height * 0.8
-                    effectiveFrame = CGRect(
+                    let cw = workingArea.width * 0.8
+                    let ch = workingArea.height * 0.85
+                    let targetFrame = CGRect(
                         x: workingArea.midX - cw / 2,
                         y: workingArea.midY - ch / 2,
                         width: cw,
                         height: ch
                     )
+                    if let fromFrame = centerFloatAnimFromFrame {
+                        let elapsed = CACurrentMediaTime() - centerFloatAnimStartTime
+                        let t = min(1.0, CGFloat(elapsed / config.animationDuration))
+                        let eased = 1 - pow(1 - t, 3)
+                        if t >= 1.0 {
+                            centerFloatAnimFromFrame = nil
+                            centerFloatIsAnimating = false
+                            effectiveFrame = targetFrame
+                        } else {
+                            effectiveFrame = lerpRect(fromFrame, targetFrame, eased)
+                        }
+                    } else {
+                        effectiveFrame = targetFrame
+                    }
                 } else {
                     effectiveFrame = tilingFrame
                 }
@@ -1015,6 +1056,14 @@ final class WindowManager {
             _ = screenIdx  // suppress warning
         }
         lastComputedFrames = allFrames
+
+        // センターフロートオーバーレイ（dim backdrop + glow border）
+        if let cid = centeredWindowID,
+           let cf = allFrames.first(where: { $0.0 == cid })?.1 {
+            centerFloatOverlay.show(centeredFrame: cf)
+        } else {
+            centerFloatOverlay.hide()
+        }
 
         // Y位置補正パス: 高さ変更を拒否したウィンドウ（iTerm2等の文字グリッドスナップ）の
         // 後続ウィンドウY位置を実際の高さに合わせてずらす
