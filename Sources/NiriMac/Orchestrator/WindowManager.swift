@@ -76,6 +76,9 @@ final class WindowManager {
     /// スワップ直後のクールダウン終了時刻（applyLayout 由来の windowMoved 誤検知を防ぐ）
     private var swapCooldownEnd: Date = .distantPast
 
+    /// センターフロート中のウィンドウID（タイルレイアウトをバイパスして画面中央に配置）
+    private var centeredWindowID: WindowID? = nil
+
     /// 最後に検知したスペースID（同一スペースの重複処理を防ぐ）
     private var lastKnownSpaceID: UInt64? = nil
 
@@ -637,9 +640,10 @@ final class WindowManager {
         axBridge.removeElement(for: id)
         parkedWindowIDs.remove(id)
 
-        // ドラッグ状態をクリア（③）
+        // ドラッグ・センターフロート状態をクリア（③）
         if mouseDownWindowID == id { mouseDownWindowID = nil }
         if draggedWindowID == id { draggedWindowID = nil }
+        if centeredWindowID == id { centeredWindowID = nil }
 
         for i in screens.indices {
             for j in screens[i].workspaces.indices {
@@ -828,12 +832,14 @@ final class WindowManager {
 
         case .switchWorkspaceUp:
             niriLog("[action] switchWorkspaceUp → ws=\(screens[screenIdx].activeWorkspaceIndex)")
+            centeredWindowID = nil
             screens[screenIdx].switchToPreviousWorkspace()
             needsLayout = true
             focusAfterLayout = true  // applyLayout 完了後にフォーカス（レイアウト前に呼ぶとマウスが画面外へ飛ぶ）
             return
 
         case .switchWorkspaceDown:
+            centeredWindowID = nil
             // 動的ワークスペース: 末尾に達したら新規作成
             if screens[screenIdx].activeWorkspaceIndex >= screens[screenIdx].workspaces.count - 1 {
                 // visibleFrame を Quartz 変換して渡す
@@ -943,6 +949,19 @@ final class WindowManager {
         case .toggleAutoFit:
             toggleAutoFit()
 
+        case .toggleCenterFloat:
+            let screenIdx2 = activeScreenIndex()
+            guard screenIdx2 < screens.count,
+                  let activeID = screens[screenIdx2].activeWorkspace.activeWindowID
+            else { return }
+            if centeredWindowID == activeID {
+                niriLog("[action] toggleCenterFloat OFF win=\(activeID)")
+                centeredWindowID = nil
+            } else {
+                niriLog("[action] toggleCenterFloat ON win=\(activeID)")
+                centeredWindowID = activeID
+            }
+
         case .quit:
             stop()
             NSApplication.shared.terminate(nil)
@@ -963,22 +982,35 @@ final class WindowManager {
         for (screenIdx, screen) in screens.enumerated() {
             let ws = screen.activeWorkspace
             niriLog("[layout] screen[\(screenIdx)] frame=\(screen.frame) workingArea=\(ws.workingArea) offset=\(ws.viewOffset.current) cols=\(ws.columns.count) activeCol=\(ws.activeColumnIndex)")
-            let frames = LayoutEngine.computeWindowFrames(
+            let tilingFrames = LayoutEngine.computeWindowFrames(
                 workspace: ws,
                 screenFrame: screen.frame,
                 config: config
             )
-            allFrames.append(contentsOf: frames)
 
             // 駐車フォールバック用: 右端外の次の空き Y 座標
             let parkX = screen.frame.maxX + config.gapWidth
             var parkY = screen.frame.minY
 
             let workingArea = ws.workingArea
-            for (windowID, frame) in frames {
+            for (windowID, tilingFrame) in tilingFrames {
+                let effectiveFrame: CGRect
+                if windowID == centeredWindowID {
+                    let cw = workingArea.width * 0.7
+                    let ch = workingArea.height * 0.8
+                    effectiveFrame = CGRect(
+                        x: workingArea.midX - cw / 2,
+                        y: workingArea.midY - ch / 2,
+                        width: cw,
+                        height: ch
+                    )
+                } else {
+                    effectiveFrame = tilingFrame
+                }
+                allFrames.append((windowID, effectiveFrame))
                 let title = windowRegistry[windowID]?.title ?? "?"
-                niriLog("[layout]   win=\(windowID) '\(title)' frame=\(frame) offScreen=\(isWindowOffScreen(frame, workingArea: workingArea))")
-                applyWindowVisibility(windowID: windowID, frame: frame, screen: screen, workingArea: workingArea, parkX: parkX, parkY: &parkY)
+                niriLog("[layout]   win=\(windowID) '\(title)' frame=\(effectiveFrame) offScreen=\(isWindowOffScreen(effectiveFrame, workingArea: workingArea))")
+                applyWindowVisibility(windowID: windowID, frame: effectiveFrame, screen: screen, workingArea: workingArea, parkX: parkX, parkY: &parkY)
             }
             _ = screenIdx  // suppress warning
         }
@@ -993,6 +1025,7 @@ final class WindowManager {
                 var prevActualBottom: CGFloat? = nil
                 for windowID in col.windows {
                     guard !parkedWindowIDs.contains(windowID) else { continue }
+                    guard windowID != centeredWindowID else { continue }
                     guard var computedFrame = allFrames.first(where: { $0.0 == windowID })?.1 else { continue }
                     if let prevBottom = prevActualBottom, prevBottom > computedFrame.origin.y + 2 {
                         let correctedY = prevBottom
