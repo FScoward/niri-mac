@@ -426,6 +426,8 @@ final class WindowManager {
             let distance = sqrt(dx * dx + dy * dy)
             niriLog("[drag] windowMoved: win=\(windowID) distance=\(Int(distance))px threshold=\(Int(self.dragThreshold))px")
             if distance > self.dragThreshold {
+                // センターフロート中のウィンドウはドラッグ確定させない
+                guard windowID != self.centeredWindowID else { return }
                 self.draggedWindowID = windowID
                 niriLog("[drag] drag confirmed: win=\(windowID)")
             }
@@ -1271,6 +1273,12 @@ final class WindowManager {
         guard let draggedID = draggedWindowID else { return }
         draggedWindowID = nil
 
+        // センターフロート中のウィンドウはスワップ/スタック操作をスキップ
+        if draggedID == centeredWindowID {
+            needsLayout = true
+            return
+        }
+
         // ターゲット検出 → スタック/スワップ
 
         // Priority 1: カーソルヒット
@@ -1391,7 +1399,8 @@ final class WindowManager {
                 // カラム内ウィンドウフォーカスを更新
                 screens[screenIdx].activeWorkspace.columns[colIdx].activeWindowIndex = winIdx
 
-                if updateViewOffset {
+                // センターフロート中はタイリングのviewOffset再計算不要
+                if updateViewOffset && windowID != centeredWindowID {
                     screens[screenIdx].activeWorkspace.recenterViewOffset(gap: config.gapWidth)
                 }
                 niriLog("[mouse] click focus: win=\(windowID) col=\(colIdx) offset→\(screens[screenIdx].activeWorkspace.viewOffset.target) updateViewOffset=\(updateViewOffset)")
