@@ -98,7 +98,7 @@ final class KeyboardShortcutManager {
             // Auto-Fit
             Binding(modifiers: meta,         keyCode: 0,   action: .toggleAutoFit),
             // センターフロート
-            Binding(modifiers: meta,         keyCode: 49,  action: .toggleCenterFloat),
+            Binding(modifiers: meta,         keyCode: 3,   action: .toggleCenterFloat),
             // 終了
             Binding(modifiers: meta,         keyCode: 12,  action: .quit),
             // Re-layout
